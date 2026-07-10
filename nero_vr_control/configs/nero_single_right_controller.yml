@@ -1,0 +1,143 @@
+robot:
+  name: nero_single_right_controller
+  urdf_path: assets/urdf/dual_nero_official.urdf
+  firmware: default
+  interface: socketcan
+  bitrate: 1000000
+  control_rate_hz: 75
+  teleop_speed_percent: 30
+  log_dir: logs/nero_single_right
+  scale_factor: 0.75
+  command_mode: move_j
+  teleop_command_mode: move_js
+  allow_move_js: true
+
+arms:
+  left_arm:
+    channel: can0
+    link_name: left_link7
+    joint_names:
+      - left_joint1
+      - left_joint2
+      - left_joint3
+      - left_joint4
+      - left_joint5
+      - left_joint6
+      - left_joint7
+    pose_source: right_controller
+    control_trigger: right_grip
+    gripper_trigger: right_trigger
+
+gripper:
+  enabled: true
+  open_width_m: 0.10
+  close_width_m: 0.0
+  max_delta_m_per_cycle: 0.003
+  command_deadband_m: 0.0003
+
+camera:
+  enabled: false
+  width: 640
+  height: 480
+  fps: 30
+  enable_depth: false
+  enable_compression: true
+  jpg_quality: 85
+  serials: {}
+
+dataset_capture:
+  enabled: false
+  format: lerobot_v3
+  root_dir: datasets/lerobot
+  repo_id: local/nero_single_right
+  fps: 10
+  robot_type: agilex_nero_single
+  task: "single Nero right-controller teleoperation"
+  start_button: X
+  discard_button: Y
+  min_episode_frames: 5
+  image_writer_threads: 10
+  image_writer_processes: 2
+  image_streams: []
+
+return_to_start:
+  enabled: true
+  button: A
+  hold_s: 1.0
+
+safety:
+  deadman_threshold: 0.5
+  xr_timeout_s: 0.25
+  max_joint_delta_rad_per_cycle: 0.014
+  hold_on_inactive: true
+  go_home_on_shutdown: false
+  disable_on_shutdown: false
+
+startup:
+  enabled: false
+  speed_percent: 40
+  control_rate_hz: 40
+  max_delta_rad_per_cycle: 0.022
+  tolerance_rad: 0.02
+  timeout_s: 60.0
+  settle_s: 1.0
+  joint_positions_deg:
+    left_arm:
+      - 0.0
+      - 45.0
+      - 0.0
+      - 45.0
+      - 0.0
+      - 0.0
+      - 0.0
+
+shutdown:
+  enabled: false
+  speed_percent: 40
+  control_rate_hz: 40
+  max_delta_rad_per_cycle: 0.022
+  tolerance_rad: 0.02
+  timeout_s: 60.0
+  settle_s: 1.0
+  joint_positions_deg:
+    left_arm:
+      - 0.0
+      - 45.0
+      - 0.0
+      - 45.0
+      - 0.0
+      - 0.0
+      - 0.0
+
+xr_mapping:
+  control_mode: pose
+  position_deadband_m: 0.004
+  rotation_deadband_rad: 0.035
+  rotation_scale: 0.95
+  position_weight: 1.0
+  orientation_weight: 0.45
+  posture_regularization_weight: 0.001
+  translation_sign:
+    - -1.0
+    - -1.0
+    - 1.0
+  rotation_sign:
+    - -1.0
+    - -1.0
+    - 1.0
+
+headsets:
+  default: pico4ultra
+  profiles:
+    pico4ultra:
+      display_name: Pico 4 Ultra
+      adb_label: Pico/Android
+      apk_version: 1.1.1
+      apk_url: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client/releases/download/v1.1.1/XRoboToolkit-PICO-1.1.1.apk
+      apk_sha256: 6b2bb282405673d24abcb1980e3478b8f1052e90f7207b1f24cc56a59f8d8261
+      apk_path: assets/apk/pico4ultra/XRoboToolkit-PICO-1.1.1.apk
+      install_args:
+        - -g
+
+pc_service:
+  linux_run_script: /opt/apps/roboticsservice/runService.sh

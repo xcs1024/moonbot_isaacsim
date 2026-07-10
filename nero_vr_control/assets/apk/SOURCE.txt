@@ -1,0 +1,15 @@
+Official XRoboToolkit headset APK sources:
+
+Quest3
+Repository: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest
+Release: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest/releases/tag/v1.0.1
+Asset: XRoboToolkit-Quest-1.0.1.apk
+Download URL: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest/releases/download/v1.0.1/XRoboToolkit-Quest-1.0.1.apk
+SHA256: c8a077451e7f6b66ca688668d7b32f5a6a6c19a8c0fa4657f2e1344493c174df
+
+Pico 4 Ultra
+Repository: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client
+Release: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client/releases/tag/v1.1.1
+Asset: XRoboToolkit-PICO-1.1.1.apk
+Download URL: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client/releases/download/v1.1.1/XRoboToolkit-PICO-1.1.1.apk
+SHA256: 6b2bb282405673d24abcb1980e3478b8f1052e90f7207b1f24cc56a59f8d8261

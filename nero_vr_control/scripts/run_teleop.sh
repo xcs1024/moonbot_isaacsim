@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+AGX_PKG="$ROOT/third_party/agx_arm_description"
+mkdir -p "$AGX_PKG"
+if [ ! -f "$AGX_PKG/package.xml" ]; then
+  cat > "$AGX_PKG/package.xml" <<'EOF'
+<package format="3">
+  <name>agx_arm_description</name>
+  <version>0.0.0</version>
+  <description>Local ROS package wrapper for AgileX arm URDF assets.</description>
+  <maintainer email="local@example.com">local</maintainer>
+  <license>MIT</license>
+</package>
+EOF
+fi
+if [ ! -e "$AGX_PKG/agx_arm_urdf" ]; then
+  ln -s ../agx_arm_urdf "$AGX_PKG/agx_arm_urdf"
+fi
+
+XRSDK_ROOT="/home/nvidia/xrobotoolkit_sdk"
+XRSDK_PROJECT_ROOT="$ROOT/third_party/XRoboToolkit-PC-Service-Pybind"
+XRSDK_LIB_DIR="$XRSDK_ROOT/lib"
+if [ "$(uname -m)" = "aarch64" ]; then
+  XRSDK_LIB_DIR="$XRSDK_ROOT/lib/aarch64:$XRSDK_PROJECT_ROOT/lib/aarch64:$XRSDK_LIB_DIR"
+fi
+export LD_LIBRARY_PATH="$XRSDK_LIB_DIR:${LD_LIBRARY_PATH:-}"
+export ROS_PACKAGE_PATH="$ROOT/third_party:${ROS_PACKAGE_PATH:-}"
+PYTHON="$ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+  PYTHON="python3"
+fi
+
+MODE="${1:-dry-run}"
+HEADSET="${2:-${XROBOT_HEADSET:-quest3}}"
+case "$MODE" in
+  dry-run)
+    exec "$PYTHON" -m xrobot_nero.teleop --config configs/nero_dual_agx.yml --headset "$HEADSET" --dry-run --visualize-placo
+    ;;
+  real)
+    bash "$ROOT/scripts/check_can_ready.sh" can0 can1
+    bash "$ROOT/scripts/stop_hold_enabled.sh"
+    set +e
+    "$PYTHON" -m xrobot_nero.teleop --config configs/nero_dual_agx.yml --headset "$HEADSET" --real --disable-log
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ] && bash "$ROOT/scripts/check_can_ready.sh" can0 can1; then
+      bash "$ROOT/scripts/start_hold_enabled.sh"
+    elif [ "$status" -ne 0 ]; then
+      echo "teleop exited with status $status; not starting hold_enabled after failed initialization." >&2
+    fi
+    exit "$status"
+    ;;
+  check)
+    exec "$PYTHON" -m xrobot_nero.teleop --config configs/nero_dual_agx.yml --headset "$HEADSET" --check
+    ;;
+  *)
+    echo "Usage: $0 {check|dry-run|real} [quest3|pico4ultra]"
+    exit 2
+    ;;
+esac

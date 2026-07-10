@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xrobot-nero"
+version = "0.1.0"
+description = "Quest3 teleoperation adapter for AgileX Nero dual arms using XRoboToolkit and pyAgxArm."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.23",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+teleop = [
+  "opencv-python",
+]
+dataset = [
+  "lerobot[pi] @ git+https://github.com/huggingface/lerobot.git",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["xrobot_nero*"]
+
+[tool.pytest.ini_options]
+addopts = [
+  "-p", "no:launch_ros",
+  "-p", "no:launch_testing",
+  "-p", "no:ament_xmllint",
+  "-p", "no:ament_copyright",
+  "-p", "no:ament_pep257",
+  "-p", "no:ament_flake8",
+  "-p", "no:ament_lint",
+  "-p", "no:colcon_core_warnings_stderr",
+]

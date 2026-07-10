@@ -1,0 +1,7 @@
+numpy>=1.23
+PyYAML>=6.0
+pytest>=8.0
+
+# Runtime dependencies installed by upstream projects:
+# - third_party/XRoboToolkit-Teleop-Sample-Python
+# - third_party/pyAgxArm

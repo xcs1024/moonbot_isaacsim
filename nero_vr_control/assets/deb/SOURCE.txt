@@ -1,0 +1,7 @@
+Official XRoboToolkit PC Service package source:
+
+Repository: https://github.com/XR-Robotics/XRoboToolkit-PC-Service
+Release: https://github.com/XR-Robotics/XRoboToolkit-PC-Service/releases/tag/v1.0.0
+Asset: XRoboToolkit_PC_Service_1.0.0_ubuntu_22.04_amd64.deb
+Download URL: https://github.com/XR-Robotics/XRoboToolkit-PC-Service/releases/download/v1.0.0/XRoboToolkit_PC_Service_1.0.0_ubuntu_22.04_amd64.deb
+SHA256: 61961067eb4b41f81ed7cae35f4690dbb0ddfefb329a12b24e0b90ebc46ada91

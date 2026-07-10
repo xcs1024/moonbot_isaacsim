@@ -1,0 +1,127 @@
+Using XR headset profile: Pico 4 Ultra (pico4ultra)
+initialize sdk,connect127.0.0.1:60061XRoboToolkit SDK initialized.
+client start server stream server connect
+server connectwatch server feedback thread startdevice found TestDevice
+device find TestDeviceWARNING: Robot has the following self collisions in neutral position:
+  -left_link5_0 collides with left_link6_0
+  -right_link5_0 collides with right_link6_0
+Joint names in the Placo model:
+  universe
+  root_joint
+  left_joint1
+  left_joint2
+  left_joint3
+  left_joint4
+  left_joint5
+  left_joint6
+  left_joint7
+  right_joint1
+  right_joint2
+  right_joint3
+  right_joint4
+  right_joint5
+  right_joint6
+  right_joint7
+Created pose task for left_arm -> left_link7
+Return-to-start ready. Hold A for 1.0s to move both arms to program start.
+Teleoperation running. Press Ctrl+C to return to zero and exit.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+XR input stream timed out; holding robot commands.
+XR input stream recovered.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+XR input stream timed out; holding robot commands.
+XR input stream recovered.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+left_arm is activated.
+left_arm is deactivated.
+XR input stream timed out; holding robot commands.
+device missing TestDevice
+device missing TestDevice
