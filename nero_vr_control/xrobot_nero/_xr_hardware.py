@@ -5,7 +5,7 @@ import time
 import threading
 import dataclasses
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 import numpy as np
 
@@ -79,9 +79,19 @@ class XRNeroDualTeleopController(HardwareTeleopController):
         dataset_fps: int | None = None,
         dataset_image_writer_threads: int | None = None,
         dataset_image_writer_processes: int | None = None,
+        isaac_sync: bool = False,
+        isaac_sync_topic: str = "isaac_joint_commands",
+        isaac_sync_joint_names: Sequence[str] | None = None,
+        isaac_sync_rate: float = 30.0,
+        isaac_sync_gripper: bool = True,
+        isaac_sync_ros_distro: str | None = None,
+        isaac_sync_frame_id: str = "",
     ):
         self.config = config
         self.dry_run = dry_run
+        self.isaac_joint_sync = None
+        self._isaac_sync_arm_order = list(config.arms)
+        self._isaac_sync_last_error_report = 0.0
         self.arm_joint_slices: Dict[str, slice] = {}
         self.joint_limiters = {
             name: StepLimiter(config.safety.max_joint_delta_rad_per_cycle)
@@ -134,6 +144,15 @@ class XRNeroDualTeleopController(HardwareTeleopController):
         self._prev_dataset_discard_button_state = False
         _ensure_agx_ros_package(config.root)
         _prepend_ros_package_path(config.root / "third_party")
+        if isaac_sync:
+            self._initialize_isaac_joint_sync(
+                topic=isaac_sync_topic,
+                joint_names=isaac_sync_joint_names,
+                rate_hz=isaac_sync_rate,
+                include_gripper=isaac_sync_gripper,
+                ros_distro=isaac_sync_ros_distro,
+                frame_id=isaac_sync_frame_id,
+            )
         try:
             super().__init__(
                 robot_urdf_path=str(config.urdf_path),
@@ -153,7 +172,56 @@ class XRNeroDualTeleopController(HardwareTeleopController):
             self._cleanup_partial_initialization()
             raise
 
+    def _initialize_isaac_joint_sync(
+        self,
+        *,
+        topic: str,
+        joint_names: Sequence[str] | None,
+        rate_hz: float,
+        include_gripper: bool,
+        ros_distro: str | None,
+        frame_id: str,
+    ) -> None:
+        from .isaac_joint_sync import DEFAULT_ARM_JOINT_NAMES, DEFAULT_JOINT_NAMES, IsaacJointStatePublisher
+
+        self._isaac_sync_include_gripper = bool(include_gripper and self.config.gripper.enabled)
+        source_joint_count = sum(len(arm.joint_names) for arm in self.config.arms.values())
+        if self._isaac_sync_include_gripper:
+            source_joint_count += 2 * len(self.config.arms)
+        if joint_names is None:
+            names = list(DEFAULT_JOINT_NAMES if self._isaac_sync_include_gripper else DEFAULT_ARM_JOINT_NAMES)
+        else:
+            names = [str(name) for name in joint_names]
+        if len(names) != source_joint_count:
+            raise ValueError(
+                f"Isaac sync joint name count ({len(names)}) must match source joint count ({source_joint_count})"
+            )
+
+        self.isaac_joint_sync = IsaacJointStatePublisher(
+            joint_names=names,
+            topic=topic,
+            rate_hz=rate_hz,
+            ros_distro=ros_distro,
+            frame_id=frame_id,
+        )
+        print(
+            "Isaac Sim joint sync enabled: "
+            f"topic={topic}, ros_distro={self.isaac_joint_sync.ros_distro}, joints={','.join(names)}"
+        )
+
+    def _close_isaac_joint_sync(self) -> None:
+        sync = getattr(self, "isaac_joint_sync", None)
+        if sync is None:
+            return
+        try:
+            sync.close()
+        except Exception as exc:
+            print(f"Isaac Sim joint sync shutdown failed: {exc}")
+        finally:
+            self.isaac_joint_sync = None
+
     def _cleanup_partial_initialization(self) -> None:
+        self._close_isaac_joint_sync()
         for controller in getattr(self, "arm_controllers", {}).values():
             try:
                 controller.disconnect()
@@ -195,6 +263,13 @@ class XRNeroDualTeleopController(HardwareTeleopController):
                     args=(self._stop_event,),
                 )
             )
+        threads.append(
+            threading.Thread(
+                name="_exit_button_thread",
+                target=self._exit_button_thread,
+                args=(self._stop_event,),
+            )
+        )
 
         if self.enable_log_data:
             threads.append(
@@ -225,7 +300,7 @@ class XRNeroDualTeleopController(HardwareTeleopController):
             thread.daemon = True
             thread.start()
 
-        print("Teleoperation running. Press Ctrl+C to return to zero and exit.")
+        print("Teleoperation running. Hold B for 0.5s to exit and hold current arm position. Ctrl+C also exits.")
         shutdown_requested = False
         try:
             while self._should_keep_running():
@@ -318,6 +393,31 @@ class XRNeroDualTeleopController(HardwareTeleopController):
             self.active[arm_name] = False
             self.ref_ee_xyz[arm_name] = None
             self.ref_controller_xyz[arm_name] = None
+
+    def _exit_button_thread(self, stop_event: threading.Event):
+        button = "B"
+        pressed_since: float | None = None
+        hold_s = 0.5
+        print(f"Exit ready. Hold {button} for {hold_s:.1f}s to stop teleop and keep arms enabled.")
+        while not stop_event.is_set():
+            try:
+                pressed = self.xr_client.get_button_state_by_name(button)
+                now = time.monotonic()
+                if pressed:
+                    if pressed_since is None:
+                        pressed_since = now
+                    elif now - pressed_since >= hold_s:
+                        print("B exit requested. Holding current robot command and stopping teleop.")
+                        self._clear_xr_activation_refs()
+                        stop_event.set()
+                        return
+                else:
+                    pressed_since = None
+            except Exception as exc:
+                print(f"Exit button polling failed: {exc}")
+                time.sleep(0.5)
+                continue
+            time.sleep(0.05)
 
     def _return_to_start_button_thread(self, stop_event: threading.Event):
         if not self.config.return_to_start.enabled:
@@ -564,6 +664,37 @@ class XRNeroDualTeleopController(HardwareTeleopController):
         except RuntimeError as exc:
             print(f"IK solver failed: {exc}")
 
+    def _publish_isaac_joint_sync(self) -> None:
+        if self.isaac_joint_sync is None:
+            return
+
+        positions = []
+        for arm_name in self._isaac_sync_arm_order:
+            joints = self._last_commanded_joints.get(arm_name)
+            if joints is None:
+                return
+            positions.extend(float(value) for value in joints)
+            if getattr(self, "_isaac_sync_include_gripper", False):
+                width = self._last_gripper_width.get(arm_name)
+                if width is None:
+                    width = self.config.gripper.open_width_m
+                positions.extend(self._isaac_gripper_width_to_joint_positions(width))
+
+        try:
+            self.isaac_joint_sync.publish(positions)
+        except Exception as exc:
+            now = time.monotonic()
+            if now - self._isaac_sync_last_error_report >= 1.0:
+                print(f"Isaac Sim joint sync publish failed: {exc}")
+                self._isaac_sync_last_error_report = now
+
+    def _isaac_gripper_width_to_joint_positions(self, width: float) -> list[float]:
+        lower = min(self.config.gripper.close_width_m, self.config.gripper.open_width_m)
+        upper = max(self.config.gripper.close_width_m, self.config.gripper.open_width_m)
+        clamped_width = clamp(float(width), lower, upper)
+        half_width = 0.5 * clamped_width
+        return [half_width, -half_width]
+
     def _send_command(self):
         if self._return_to_start_in_progress.is_set():
             return
@@ -598,6 +729,8 @@ class XRNeroDualTeleopController(HardwareTeleopController):
                 if last_width is None or abs(width - last_width) >= self.config.gripper.command_deadband_m:
                     controller.send_gripper_width(width)
                     self._last_gripper_width[arm_name] = width
+
+        self._publish_isaac_joint_sync()
 
     def _dataset_capture_thread(self, stop_event: threading.Event):
         if self.dataset_recorder is None:
@@ -718,4 +851,5 @@ class XRNeroDualTeleopController(HardwareTeleopController):
                     print(f"{name}: leaving arm enabled on shutdown; not disconnecting CAN driver.")
             except Exception as exc:
                 print(f"{name}: shutdown failed: {exc}")
+        self._close_isaac_joint_sync()
         self._robot_initialized = False

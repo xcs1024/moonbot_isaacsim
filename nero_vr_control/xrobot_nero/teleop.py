@@ -6,7 +6,15 @@ import sys
 from pathlib import Path
 
 from .config import load_config
+from .isaac_joint_sync import DEFAULT_JOINT_NAMES
 from .teleop_controller import NeroDualTeleopController
+
+
+def _parse_joint_names(value: str) -> list[str]:
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    if not names:
+        raise argparse.ArgumentTypeError("joint name list must not be empty")
+    return names
 
 
 def _check_environment(config_path: Path, headset_name: str) -> int:
@@ -77,6 +85,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset-fps", type=int, default=None, help="Override dataset_capture.fps.")
     parser.add_argument("--dataset-image-writer-threads", type=int, default=None)
     parser.add_argument("--dataset-image-writer-processes", type=int, default=None)
+    parser.add_argument(
+        "--isaac-sync",
+        action="store_true",
+        help="Publish real/commanded arm joints to Isaac Sim as sensor_msgs/JointState.",
+    )
+    parser.add_argument("--isaac-sync-topic", default="isaac_joint_commands", help="Isaac Sim joint command topic.")
+    parser.add_argument(
+        "--isaac-sync-joint-names",
+        type=_parse_joint_names,
+        default=",".join(DEFAULT_JOINT_NAMES),
+        help="Comma-separated Isaac Sim joint names, in real arm joint order.",
+    )
+    parser.add_argument("--isaac-sync-rate", type=float, default=30.0, help="Maximum joint sync publish rate.")
+    parser.add_argument(
+        "--isaac-sync-gripper",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include simulated gripper_joint1/2 in Isaac Sim joint sync.",
+    )
+    parser.add_argument(
+        "--isaac-sync-ros-distro",
+        choices=("humble", "jazzy"),
+        default=None,
+        help="Isaac Sim bundled ROS2 distro to use. Defaults to ROS_DISTRO, then jazzy.",
+    )
+    parser.add_argument("--isaac-sync-frame-id", default="", help="Optional JointState header frame_id.")
     args = parser.parse_args(argv)
 
     config_path = Path(args.config).expanduser()
@@ -110,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
         dataset_fps=args.dataset_fps,
         dataset_image_writer_threads=args.dataset_image_writer_threads,
         dataset_image_writer_processes=args.dataset_image_writer_processes,
+        isaac_sync=args.isaac_sync,
+        isaac_sync_topic=args.isaac_sync_topic,
+        isaac_sync_joint_names=args.isaac_sync_joint_names,
+        isaac_sync_rate=args.isaac_sync_rate,
+        isaac_sync_gripper=args.isaac_sync_gripper,
+        isaac_sync_ros_distro=args.isaac_sync_ros_distro,
+        isaac_sync_frame_id=args.isaac_sync_frame_id,
     )
     controller.run()
     return 0

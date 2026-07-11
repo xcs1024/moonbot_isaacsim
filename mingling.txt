@@ -1,0 +1,12 @@
+# 终端1：启动带 RealSense 背景 + ROS2 bridge + timeline 播放的 Isaac Sim 场景
+cd /home/nvidia/isaacsim_realworld
+conda activate env_isaacsim
+python scripts/realsense_depth_masked_texture_isaacsim.py \
+  --min-distance 3.0 \
+  --near-mode dim \
+  --near-dim 0.12 \
+  --update-interval 0.10
+  
+# 终端2：启动真机 VR 控制，同时把真机/命令关节同步到 Isaac Sim
+cd /home/nvidia/isaacsim_realworld/nero_vr_control
+./scripts/start_single_right_teleop_isaac_sync.sh

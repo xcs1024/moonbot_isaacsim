@@ -1,102 +1,115 @@
 # xrobot
 
-[英文](README.md) | 中文
+English | [Chinese](README.zh-CN.md)
 
-面向 AgileX Nero 双臂和 AGX 夹爪的 XR 头显真机遥操作工程。
+XR headset teleoperation for AgileX Nero dual arms with AGX grippers.
 
-本项目用于在两台 AgileX Nero 机械臂上部署真实机器人遥操作系统。系统使用
-XR-Robotics 头显客户端和 PC Service 获取 XR 输入，使用 AgileX `pyAgxArm`
-控制 Nero 真机，并使用官方 Nero URDF 做逆运动学。Meta Quest 3 和 Pico 4 Ultra
-都通过同一套遥操作程序运行，用户只需要选择对应头显脚本。
+This project deploys a real-robot teleoperation system for two AgileX Nero arms.
+It uses XR-Robotics headset clients and PC Service for XR input, AgileX
+`pyAgxArm` for Nero hardware control, and the official Nero URDF for inverse
+kinematics. Meta Quest 3 and Pico 4 Ultra are both supported through the same
+teleoperation program; the operator only chooses a headset-specific script.
 
-## 当前状态
+## Status
 
-- Meta Quest 3 遥操作：已验证。
-- Pico 4 Ultra 遥操作：已验证。
-- 机器人：Nero 双臂 + AGX_GRIPPER 夹爪。
-- 默认系统：Ubuntu 22.04。
-- 默认 Python：3.10。
-- 默认 CAN：左臂 `can0`，右臂 `can1`，bitrate `1000000`。
-- Quest 客户端：XR-Robotics 官方 APK，不需要 Unity。
-- Pico 客户端：XR-Robotics 官方 APK，不需要 Unity。
+- Meta Quest 3 teleoperation: verified.
+- Pico 4 Ultra teleoperation: verified.
+- Robot: dual Nero arms with AGX_GRIPPER grippers.
+- Default OS: Ubuntu 22.04.
+- Default Python: 3.10.
+- Default CAN: left arm `can0`, right arm `can1`, bitrate `1000000`.
+- Quest client: official XR-Robotics APK, no Unity required.
+- Pico client: official XR-Robotics APK, no Unity required.
 
-## 系统架构
+## Architecture
 
 ```text
 Quest3 / Pico 4 Ultra
         |
-        | 手柄位姿、grip、trigger
+        | XR controller pose, grip, trigger
         v
-XRoboToolkit 头显 App
+XRoboToolkit headset app
         |
-        | 局域网
+        | LAN
         v
 XRoboToolkit PC Service
         |
         | xrobotoolkit_sdk / Python teleop sample
         v
-xrobot_nero 遥操作适配层
+xrobot_nero teleop adapter
         |
-        | 官方 Nero URDF + Placo IK
+        | official Nero URDF + Placo IK
         v
 pyAgxArm
         |
         | Linux socketcan
         v
-Nero 左臂 + Nero 右臂 + AGX 夹爪
+Nero left arm + Nero right arm + AGX grippers
 ```
 
-关键实现选择：
+Important implementation choices:
 
-- Quest 和 Pico 共用同一套机器人控制逻辑，只在 APK profile 和启动脚本上区分。
-- 运行时使用 AgileX 官方 Nero URDF，不再使用手写 URDF。
-- 程序启动后双臂先移动到 `[0, 45, 0, 45, 0, 0, 0]` 度。
-- 按一次 Ctrl-C 后停止遥操作输入，双臂回零，然后程序退出。
-- 程序退出时不会主动失能机械臂。
-- `hold_enabled` 不允许和真机遥操作同时运行。真机脚本会在遥操作前停止
-  `hold_enabled`，仅在正常退出后重新启动。
-- 当前现场调优使用低权重关节姿态正则，减少 7 自由度 IK 在中间关节上的异常扭转，
-  同时保留较灵敏的腕部姿态跟随。
+- Robot control is common for both headsets. Quest and Pico only differ in APK
+  profile and launch script.
+- Runtime control uses the official AgileX Nero URDF, not a handwritten URDF.
+- Startup moves both arms to `[0, 45, 0, 45, 0, 0, 0]` degrees.
+- Ctrl-C stops teleoperation, returns both arms to zero, then exits.
+- The program does not intentionally disable the arms on exit.
+- `hold_enabled` is not allowed to run concurrently with teleop. The real
+  teleop script stops `hold_enabled` before teleop and restarts it only after a
+  normal teleop exit.
+- Current field tuning uses low-weight joint posture regularization to reduce
+  odd intermediate-joint twists in the 7-DoF IK solution while keeping wrist
+  orientation responsive.
 
-## 目录结构
+## Repository Layout
 
 ```text
 xrobot/
   assets/
-    apk/                         Quest/Pico 官方 APK 和来源记录
-    urdf/                        基于 AgileX 官方 URDF 生成的双 Nero URDF
+    apk/                         Official Quest/Pico APKs and source records
+    urdf/                        Generated dual Nero URDF from AgileX official URDF
   configs/
-    nero_dual_agx.yml            机器人、安全、CAN、夹爪、头显 profile 配置
+    nero_dual_agx.yml            Robot, safety, CAN, gripper, headset profiles
   scripts/
-    run_teleop_quest.sh          Quest 入口脚本
-    run_teleop_pico.sh           Pico 入口脚本
-    run_teleop.sh                通用遥操作启动脚本
-    run_dataset_capture.sh       VR 遥操作数据采集入口
-    setup_can.sh                 激活 can0/can1
-    hardware_check.sh            只读关节数据的硬件检查
-    status.sh                    环境状态汇总
-    download_headset_apk.sh      下载并校验 Quest/Pico APK
-    install_headset_apk.sh       通过 adb 安装 Quest/Pico APK
-    start_hold_enabled.sh        正常退出后保持机械臂使能
-    stop_hold_enabled.sh         停止 hold 进程
-  tests/                         配置、运动学、安全逻辑测试
-  third_party/                   XR-Robotics 和 AgileX 上游项目
-  xrobot_nero/                   Nero 适配层和遥操作运行时代码
+    run_teleop_quest.sh          Quest entrypoint
+    run_teleop_pico.sh           Pico entrypoint
+    run_teleop.sh                Shared teleop runner
+    run_dataset_capture.sh       VR teleoperation dataset capture entrypoint
+    setup_can.sh                 Bring up can0/can1
+    hardware_check.sh            Read Nero joints without motion
+    status.sh                    Environment status summary
+    download_headset_apk.sh      Download and verify Quest/Pico APK
+    install_headset_apk.sh       Install Quest/Pico APK through adb
+    start_hold_enabled.sh        Keep Nero arms enabled after normal exit
+    stop_hold_enabled.sh         Stop hold process
+  tests/                         Focused config, kinematics, safety tests
+  third_party/                   XR-Robotics and AgileX upstream projects
+  xrobot_nero/                   Nero adapter and teleoperation runtime
 ```
 
-日常使用主要关注 `scripts/`、`configs/nero_dual_agx.yml` 和 `xrobot_nero/`。
-第三方仓库放在 `third_party/`，不要直接修改上游核心逻辑。
+Daily operation mainly uses `scripts/`, `configs/nero_dual_agx.yml`, and
+`xrobot_nero/`. Upstream dependencies live under `third_party/`; avoid editing
+upstream code directly.
 
-## Pico VR LeRobot 数据采集
+## Pico VR LeRobot Dataset Capture
 
-项目内置 LeRobot v3 直接数据采集链路，用于通过 Pico 4 Ultra VR 遥操作采集真实机器人示教数据。采集入口和普通遥操作入口分离：
+This project includes a direct LeRobot v3 recorder for real-robot
+demonstration collection with Pico 4 Ultra VR teleoperation. Dataset capture is
+separate from ordinary teleoperation:
 
-- 普通遥操作：`scripts/run_teleop.sh real pico4ultra`，不加载 LeRobot，不写数据集。
-- 数据采集：`scripts/run_dataset_capture.sh real pico4ultra`，在遥操作同时直接写 LeRobot v3 数据集。
+- Ordinary teleoperation: `scripts/run_teleop.sh real pico4ultra`, which does
+  not import LeRobot and does not write a dataset.
+- Dataset capture: `scripts/run_dataset_capture.sh real pico4ultra`, which
+  teleoperates the robot and writes a LeRobot v3 dataset online.
 
-采集端保存的是可解释、可回放的 **absolute state + absolute action**。训练 pi0.5 时再通过 processor 把 14 个机械臂关节动作转换成 joint-space relative action；左右夹爪始终保持 absolute width command。也就是说，采集阶段不要在 recorder 里做相对动作转换。
+The capture side stores interpretable **absolute state + absolute action**.
+For pi0.5 training, a processor later converts the 14 arm joint action
+dimensions into joint-space relative actions. The two gripper dimensions stay
+absolute width commands. Do not convert actions to relative commands inside the
+recorder.
 
-默认数据 schema：
+Default dataset schema:
 
 ```text
 observation.state: float32[16]
@@ -106,22 +119,22 @@ observation.images.left_wrist
 observation.images.right_wrist
 ```
 
-16 维向量顺序固定为：
+The 16-dimensional vector order is fixed:
 
 ```text
 left_joint1..left_joint7, left_arm_gripper_width,
 right_joint1..right_joint7, right_arm_gripper_width
 ```
 
-### Pico 采集复现流程
+### Pico Capture Reproduction
 
-每次采集前先进入项目根目录：
+Start from the project root:
 
 ```bash
 cd /home/zxd/xrobot
 ```
 
-确认 CAN、相机、Pico profile 和依赖可用：
+Check CAN, cameras, the Pico profile, and runtime imports:
 
 ```bash
 bash scripts/setup_can.sh can0 can1 1000000
@@ -129,25 +142,27 @@ bash scripts/check_can_ready.sh can0 can1
 bash scripts/run_teleop.sh check pico4ultra
 ```
 
-启动 XRoboToolkit PC Service。建议后台启动，避免占用采集终端：
+Start XRoboToolkit PC Service. Background startup is recommended so the capture
+terminal remains available:
 
 ```bash
 bash scripts/start_pc_service_background.sh
 pgrep -a RoboticsService
 ```
 
-打开 Pico 4 Ultra 里的 XRoboToolkit App，确保头显和电脑在同一局域网。App 中开启：
+Open the XRoboToolkit app on Pico 4 Ultra. The headset and robot PC must be on
+the same LAN. Enable:
 
 - `Controller tracking`
 - `Send`
 
-如果 App 需要填写电脑 IP：
+If the app asks for the PC IP:
 
 ```bash
 hostname -I
 ```
 
-启动数据采集：
+Start capture:
 
 ```bash
 bash scripts/run_dataset_capture.sh real pico4ultra \
@@ -156,51 +171,56 @@ bash scripts/run_dataset_capture.sh real pico4ultra \
   2>&1 | tee logs/dataset_capture_$(date +%Y%m%d_%H%M%S).log
 ```
 
-运行后等待终端出现：
+Wait for:
 
 ```text
 Dataset capture ready. Press X to start/stop an episode; press Y to discard the active episode.
 Teleoperation running.
 ```
 
-### 手柄规则
+### Controller Rules
 
-数据采集控制：
+Dataset capture buttons:
 
-- 左手柄 `X`：开始录制 episode；再次按 `X` 停止并保存当前 episode。
-- 左手柄 `Y`：丢弃当前正在录制的 episode。
-- 右手柄 `A` 长按 1 秒：两个机械臂缓缓回到程序开始时记录的初始状态。
-- `Ctrl-C`：退出程序；如果正在录制，会先保存当前 episode 并 finalize 数据集。
+- Left controller `X`: start recording an episode; press `X` again to stop and
+  save it.
+- Left controller `Y`: discard the active episode.
+- Hold right controller `A` for 1 second: slowly move both arms back to the
+  program-start state.
+- `Ctrl-C`: exit; if an episode is active, it is saved before dataset
+  finalization.
 
-遥操作控制：
+Teleoperation controls:
 
-- 右手柄 `grip` 控制左臂跟随，右手柄 `trigger` 控制左夹爪。
-- 左手柄 `grip` 控制右臂跟随，左手柄 `trigger` 控制右夹爪。
-- grip 是 deadman switch，松开后对应机械臂保持当前目标。
-- trigger 控制夹爪开合，不依赖 grip。
+- Right controller `grip` drives the left arm; right controller `trigger`
+  drives the left gripper.
+- Left controller `grip` drives the right arm; left controller `trigger`
+  drives the right gripper.
+- Grip is the deadman switch. Releasing grip holds the matching arm target.
+- Trigger controls gripper width independently of grip.
 
-### 采后检查
+### After-Capture Checks
 
-采完后立刻检查 LeRobot metadata：
+Check LeRobot metadata immediately after collection:
 
 ```bash
 jq '.total_episodes, .total_frames, .fps' \
   datasets/lerobot/local/nero_tube_pick_place/meta/info.json
 ```
 
-成功采集时：
+A successful collection should show:
 
 - `total_episodes >= 1`
 - `total_frames > 0`
-- `fps` 为 `10`
+- `fps` equal to `10`
 
-检查数据文件：
+Check data files:
 
 ```bash
 find datasets/lerobot/local/nero_tube_pick_place -maxdepth 6 -type f | sort
 ```
 
-应能看到：
+Expected files include:
 
 ```text
 meta/info.json
@@ -211,22 +231,32 @@ data/chunk-000/file-*.parquet
 xrobot_nero_metadata.json
 ```
 
-如果只看到 `meta/info.json` 和 `xrobot_nero_metadata.json`，说明只创建了 schema，没有保存 episode。此时下一次启动 recorder 会自动清理 `0 episode / 0 frame` 的空残留目录并重新创建，不会再因为目录已存在报 `FileExistsError`。
+If the directory only contains `meta/info.json` and
+`xrobot_nero_metadata.json`, only the schema was created and no episode was
+saved. On the next recorder startup, a `0 episode / 0 frame` empty residue is
+reset automatically, so it should not raise `FileExistsError`.
 
-### 示教质量建议
+### Demonstration Quality
 
-正式数据建议只保留成功、干净、可复现的 episode。对“试管放置到试管槽”任务，推荐：
+Keep only successful, clean, reproducible episodes for formal training. For the
+test-tube placement task:
 
-- 固定试管架、相机和背景，先做固定场景 demo。
-- 每条 episode 尽量控制在 15-35 秒。
-- 动作流程清晰：接近、抓取、调整姿态、交接、对孔、下放、松夹、撤离。
-- 右腕相机在放置阶段尽量同时看到试管和孔位。
-- 失败、碰撞、长时间犹豫、明显偏离任务的 episode 用 `Y` 丢弃。
-- 试验版数据不要混入正式数据集；可以删除对应 `datasets/lerobot/<repo_id>` 后重新开始。
+- Keep the rack, cameras, and background fixed for the first fixed-scene demo.
+- Aim for 15-35 seconds per episode.
+- Use a clear sequence: approach, grasp, orient, handoff, align to hole,
+  lower, release, retreat.
+- During placement, keep the test tube and target hole visible from the wrist
+  camera when possible.
+- Discard failures, collisions, long hesitation, and obvious off-task episodes
+  with `Y`.
+- Do not mix trial recordings into a formal dataset. Remove the corresponding
+  `datasets/lerobot/<repo_id>` directory before starting a clean dataset.
 
-### 换任务快速复用
+### Reusing For New Tasks
 
-这套采集后端不绑定“试管放置”任务。未来采集其他任务时，优先复用同一套入口，只换 `repo_id` 和自然语言任务描述：
+The recorder backend is not specific to test-tube placement. For another task,
+reuse the same entrypoint and change only the `repo_id` and natural-language
+task prompt:
 
 ```bash
 bash scripts/run_dataset_capture.sh real pico4ultra \
@@ -234,76 +264,61 @@ bash scripts/run_dataset_capture.sh real pico4ultra \
   --dataset-task "<describe the new task in one clear sentence>"
 ```
 
-复用建议：
+Reuse guidelines:
 
-- 每个任务使用独立 `repo_id`，例如 `local/nero_tube_pick_place`、`local/nero_block_stack`。
-- `--dataset-task` 要写成模型未来推理时也会使用的 prompt。
-- 只要任务仍使用双 Nero、两个夹爪和三相机，就不需要改 schema。
-- 如果未来自研数采软件接入，只需要提供同 schema 的 `state/action/images/task`，即可复用 `create_dataset_recorder(config, capture_config)` 写同一种 LeRobot v3 数据集。
-- 普通 VR 遥操作入口保持不变；不启用 `--dataset-capture` 时不会加载 LeRobot。
+- Use a separate `repo_id` per task, for example `local/nero_tube_pick_place`
+  or `local/nero_block_stack`.
+- Write `--dataset-task` as the same prompt that will be used at inference
+  time.
+- If the task still uses the dual Nero arms, two grippers, and three cameras,
+  keep the same schema.
+- A future in-house collection UI only needs to provide the same
+  `state/action/images/task` schema and can reuse
+  `create_dataset_recorder(config, capture_config)` to write the same LeRobot
+  v3 dataset format.
+- Ordinary VR teleoperation remains unchanged. LeRobot is loaded only when
+  `--dataset-capture` is enabled.
 
-详细 pi0.5 action 语义和服务器训练流程见 [docs/DATASET_CAPTURE_PI05.md](docs/DATASET_CAPTURE_PI05.md)。
+See [docs/DATASET_CAPTURE_PI05.md](docs/DATASET_CAPTURE_PI05.md) for pi0.5
+action semantics and server-side training notes.
 
-### pi0.5 远端训练快速入口
+### Full Capture Flow After PC Reboot
 
-准备 OpenPI 远端训练工作区：
+After rebooting the robot PC, use this sequence to start a clean formal capture
+session:
 
-```bash
-bash scripts/bootstrap_pi05_remote.sh
-```
-
-采集完成后同步数据、训练并拉回 checkpoint：
-
-```bash
-bash scripts/sync_pi05_dataset_to_remote.sh local/nero_tube_pick_place
-bash scripts/remote_pi05_train.sh local/nero_tube_pick_place tube_pick_place
-bash scripts/fetch_pi05_checkpoint.sh tube_pick_place latest
-```
-
-本地直接推理冒烟测试：
-
-```bash
-export XROBOT_OPENPI_DIR=/path/to/local/openpi
-bash scripts/run_pi05_local_smoke.sh checkpoints/nero_pi05/tube_pick_place/<step>
-```
-
-默认远端为 SSH alias `A800`，路径限制为 `/local/zqm/zxd`，所有远端环境、缓存、数据和 checkpoint 都应放在这个目录内。旧的 `/home/zqm/zxd` 训练工作区已废弃。
-远端 OpenPI 固定到当前验证过的 commit `c23745b5ad24e98f66967ea795a07b2588ed6c79`，环境使用工作区内的 `uv` + Python 3.11，不依赖系统 conda 环境。
-
-### 电脑重启后的完整采集流程
-
-电脑重启后，从零开始采集一批正式数据时按下面顺序执行：
-
-1. 打开机械臂、夹爪、USB-CAN、RealSense 相机和 Pico 4 Ultra，确认实验台区域安全。
-2. 在 Nero Web UI 中确认两台机械臂已使能，并开启 CAN push。
-3. 进入项目：
+1. Power on the arms, grippers, USB-CAN adapters, RealSense cameras, and Pico 4
+   Ultra. Confirm the workspace is safe.
+2. In the Nero Web UI, confirm both arms are enabled and CAN push is active.
+3. Enter the project:
 
    ```bash
    cd /home/zxd/xrobot
    ```
 
-4. 启动 CAN：
+4. Bring up CAN:
 
    ```bash
    bash scripts/setup_can.sh can0 can1 1000000
    bash scripts/check_can_ready.sh can0 can1
    ```
 
-5. 启动 XRoboToolkit PC Service：
+5. Start XRoboToolkit PC Service:
 
    ```bash
    bash scripts/start_pc_service_background.sh
    pgrep -a RoboticsService
    ```
 
-6. 检查 Pico profile、三相机和 Python 依赖：
+6. Check the Pico profile, three cameras, and Python imports:
 
    ```bash
    bash scripts/run_teleop.sh check pico4ultra
    ```
 
-7. 打开 Pico 中的 XRoboToolkit App，填写电脑 IP，开启 `Controller tracking` 和 `Send`。
-8. 启动数据采集：
+7. Open the XRoboToolkit app on Pico, enter the PC IP, and enable
+   `Controller tracking` and `Send`.
+8. Start dataset capture:
 
    ```bash
    bash scripts/run_dataset_capture.sh real pico4ultra \
@@ -312,11 +327,14 @@ bash scripts/run_pi05_local_smoke.sh checkpoints/nero_pi05/tube_pick_place/<step
      2>&1 | tee logs/dataset_capture_$(date +%Y%m%d_%H%M%S).log
    ```
 
-9. 等待双臂到达启动初始位，不要在启动运动期间按住 grip。
-10. 摆好任务物体，按左手柄 `X` 开始 episode。
-11. 完成一次任务后，再按左手柄 `X` 保存；失败则按左手柄 `Y` 丢弃。
-12. 采集结束后按 `Ctrl-C` 退出。
-13. 检查数据：
+9. Wait for both arms to reach the startup pose. Do not hold grip during
+   startup motion.
+10. Arrange the task objects, then press left controller `X` to start an
+    episode.
+11. Finish one task trial, then press left controller `X` to save it. Press
+    left controller `Y` to discard failed trials.
+12. Press `Ctrl-C` when the capture session is done.
+13. Check the dataset:
 
     ```bash
     jq '.total_episodes, .total_frames, .fps' \
@@ -325,215 +343,228 @@ bash scripts/run_pi05_local_smoke.sh checkpoints/nero_pi05/tube_pick_place/<step
     find datasets/lerobot/local/nero_tube_pick_place -maxdepth 6 -type f | sort
     ```
 
-14. 只把正式成功 episode 保留在正式数据集中；试验版数据确认无用后可删除对应 `datasets/lerobot/<repo_id>` 目录。
+14. Keep only formal successful episodes in the formal dataset. Remove the
+    corresponding `datasets/lerobot/<repo_id>` directory if a trial dataset
+    should not be used for training.
 
-## 硬件要求
+## Hardware Requirements
 
-- 两台 AgileX Nero 机械臂。
-- 两个 AGX_GRIPPER 夹爪。
-- 两个 Linux `gs_usb` 支持的 USB-CAN 适配器。
-- 建议给 USB-CAN 适配器使用带外部供电的 USB hub。
-- 机器人控制电脑运行 Ubuntu 22.04。
-- Meta Quest 3 和/或 Pico 4 Ultra。
-- 头显和机器人控制电脑必须在同一局域网内，以便连接 XRoboToolkit PC Service。
-- Nero Web UI 需要能通过网线访问，用于开启 CAN push 和手动恢复。
+- Two AgileX Nero arms.
+- Two AGX_GRIPPER grippers.
+- Two USB-CAN adapters supported by Linux `gs_usb`.
+- A powered USB hub is recommended for the USB-CAN adapters.
+- Robot PC running Ubuntu 22.04.
+- Meta Quest 3 and/or Pico 4 Ultra.
+- The headset and robot PC must be on the same LAN for XRoboToolkit PC Service.
+- The Nero Web UI must be reachable over Ethernet for CAN push setup and
+  manual recovery.
 
-真机运行依赖两条通信链路：头显到 PC 的局域网链路，以及 PC 到 Nero 的
-USB-CAN 链路。Web 网页控制正常不代表 USB-CAN 链路一定正常。
+## Safety Requirements
 
-## 安全要求
+Before running real teleoperation:
 
-真机遥操作前必须确认：
+- Clear the workspace around both arms.
+- Confirm the emergency stop is reachable.
+- Confirm both arms are powered and Web UI control works.
+- Confirm CAN push is enabled in the Nero Web UI.
+- Confirm `hardware_check` can read both arms.
+- Do not hold grip while the program is moving to the startup pose.
+- Use low-risk small motions when validating a new headset or PC.
 
-- 双臂周围工作空间已清空。
-- 急停按钮可触达。
-- 双臂已上电，Web UI 手动控制正常。
-- Nero Web UI 中已开启 CAN push。
-- `hardware_check` 可以读到两台机械臂的关节数据。
-- 程序移动到启动初始位期间，不要按住 grip。
-- 新头显、新电脑或新接线首次验证时，只做小幅低风险运动。
+The default safety behavior:
 
-默认安全行为：
+- Grip is the deadman switch for arm following.
+- Trigger controls the matching gripper independently of grip.
+- Releasing grip holds the current arm target.
+- XR timeout stops command updates.
+- Joint command deltas are limited each cycle.
+- Gripper width command deltas are limited each cycle.
+- Startup and shutdown return use `move_j`.
+- Active teleoperation uses `move_js` after safety limiting.
+- IK includes low-weight joint posture regularization to avoid odd
+  intermediate-joint twisting from 7-DoF redundancy.
 
-- grip 是机械臂跟随的 deadman switch。
-- trigger 独立控制对应夹爪，不依赖 grip。
-- 松开 grip 后，机械臂保持当前目标。
-- XR 超时后停止更新命令。
-- 每个控制周期都会限制关节命令增量。
-- 每个控制周期都会限制夹爪宽度命令增量。
-- 启动和退出回零使用 `move_j`。
-- 主动遥操作阶段在安全限幅后使用 `move_js`。
-- IK 中加入低权重关节姿态正则，避免 7 自由度冗余解导致中间关节异常扭转。
+## First-Time Setup On This PC
 
-## 当前电脑首次部署
-
-所有命令都从项目根目录执行：
+Run all commands from the project root:
 
 ```bash
 cd /home/zxd/xrobot
 ```
 
-安装系统依赖：
+Install system packages:
 
 ```bash
 bash scripts/install_system_deps.sh
 ```
 
-创建虚拟环境并安装基础 Python 依赖：
+Create the virtual environment and install base Python dependencies:
 
 ```bash
 bash scripts/bootstrap_python.sh
 ```
 
-拉取上游依赖并安装最小运行环境：
+Fetch upstream dependencies and install the minimal runtime:
 
 ```bash
 bash scripts/setup_third_party.sh
 bash scripts/install_runtime_minimal.sh
 ```
 
-如需要，以 editable 模式安装本项目：
+Install this project in editable mode if needed:
 
 ```bash
 . .venv/bin/activate
 pip install -e .
 ```
 
-安装 XRoboToolkit PC Service：
+Install XRoboToolkit PC Service:
 
 ```bash
 bash scripts/download_pc_service_deb.sh
 bash scripts/install_pc_service_deb.sh
 ```
 
-启动 PC Service：
+Start PC Service:
 
 ```bash
 bash scripts/run_pc_service.sh
 ```
 
-如需后台启动：
+For background startup:
 
 ```bash
 bash scripts/start_pc_service_background.sh
 ```
 
-## 头显 APK 设置
+## Headset APK Setup
 
-项目默认使用 XR-Robotics 官方 APK：
+The project uses official XR-Robotics APKs:
 
-- Quest3：`XRoboToolkit-Quest-1.0.1.apk`
-- Pico 4 Ultra：`XRoboToolkit-PICO-1.1.1.apk`
+- Quest3: `XRoboToolkit-Quest-1.0.1.apk`
+- Pico 4 Ultra: `XRoboToolkit-PICO-1.1.1.apk`
 
-下载并校验 APK：
+Download and verify APKs:
 
 ```bash
 bash scripts/download_headset_apk.sh quest3
 bash scripts/download_headset_apk.sh pico4ultra
 ```
 
-安装 Quest APK：
+Install the Quest APK:
 
 ```bash
 bash scripts/install_headset_apk.sh quest3
 ```
 
-安装 Pico APK：
+Install the Pico APK:
 
 ```bash
 bash scripts/install_headset_apk.sh pico4ultra
 ```
 
-ADB 注意事项：
+Legacy Quest wrappers are still available:
 
-- 安装 APK 前，需要先在头显中开启开发者模式。
-- USB 连接头显后，需要在头显内确认 USB 调试授权。
-- 如果同时连接了多个 Android 设备，设置 `ADB_SERIAL=<serial>`。
-- USB 只用于 APK 安装和 ADB 维护；实际遥操作通过局域网连接 PC Service。
+```bash
+bash scripts/download_quest_apk.sh
+bash scripts/install_quest_apk.sh
+```
 
-## Quest 不佩戴时保持唤醒设置
+ADB notes:
 
-本节只针对 Meta Quest 3。用于启动遥操作后，把头显摘下，只使用两个手柄继续遥操作。
+- Enable developer mode on the headset before installing APKs.
+- Connect the headset over USB and confirm USB debugging inside the headset.
+- If multiple Android devices are connected, set `ADB_SERIAL=<serial>`.
+- USB is only required for installing APKs or ADB maintenance. Runtime
+  teleoperation uses LAN through XRoboToolkit PC Service.
 
-推荐先设置头显自身的自动休眠时间：
+## Quest Keep-Awake Setup
 
-1. 戴上 Quest 头显。
-2. 打开 `设置`。
-3. 进入 `系统` -> `电源`。
-4. 将头显自动休眠时间设置为可选的最长时间。
-5. 长时间测试时，保持头显电量充足，必要时接入电源。
+This section is only for Meta Quest 3. Use it when you want to start teleop,
+take off the headset, place it safely on the table, and keep using the two
+controllers.
 
-开发者模式下的保持唤醒方式：
+Recommended headset setting:
 
-1. 确认 Quest 已通过 ADB 连接：
+1. Wear the Quest headset.
+2. Open `Settings`.
+3. Go to `System` -> `Power`.
+4. Set headset auto sleep to the longest available value.
+5. Keep the headset charged or connected to power during long tests.
+
+Developer-mode keep-awake option:
+
+1. Confirm the Quest is connected through ADB:
 
    ```bash
    adb devices -l
    ```
 
-2. 延长 Android 屏幕超时时间：
+2. Extend the Android screen timeout:
 
    ```bash
    adb shell settings put system screen_off_timeout 14400000
    ```
 
-   `14400000` 表示 4 小时，单位是毫秒。
+   `14400000` is 4 hours in milliseconds.
 
-3. 关闭当前开机周期内的 Quest 接近传感器休眠行为：
+3. Disable the Quest proximity sleep behavior for the current boot:
 
    ```bash
    adb shell taskset 0000000F am broadcast -a com.oculus.vrpowermanager.prox_close
    ```
 
-   如果当前头显系统没有 `taskset`，尝试：
+   If `taskset` is unavailable on a headset OS version, try:
 
    ```bash
    adb shell am broadcast -a com.oculus.vrpowermanager.prox_close
    ```
 
-4. 打开 Quest 头显 App，开启 Controller tracking 和 Send，然后把头显放在稳定位置，
-   避免阳光直射镜片。
-5. 正常启动 Quest 遥操作：
+4. Start the Quest headset app, enable Controller tracking and Send, then place
+   the headset somewhere stable and away from direct sunlight.
+5. Run teleoperation normally:
 
    ```bash
    bash scripts/run_teleop_quest.sh real
    ```
 
-恢复 Quest 默认休眠行为：
+Restore normal Quest sleep behavior:
 
 ```bash
 adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable
 adb shell settings delete system screen_off_timeout
 ```
 
-注意事项：
+Notes:
 
-- 关闭接近传感器休眠的命令可能在头显重启后失效，需要在遥操作前重新执行。
-- 不要遮挡镜片，不要让头显镜片受到阳光直射。
-- 禁用休眠会增加耗电和发热，长时间遥操作时需要观察头显状态。
-- Pico 遥操作不需要执行本节设置。
+- The proximity-sensor command may reset after reboot. Run it again before a
+  teleop session if needed.
+- Do not cover the lenses or leave the headset in direct sunlight.
+- Disabling sleep increases battery drain and heat. Monitor the headset during
+  long teleop sessions.
+- This setup is not required for Pico.
 
-## CAN 设置
+## CAN Setup
 
-默认映射：
+Default mapping:
 
-- 左 Nero 机械臂：`can0`
-- 右 Nero 机械臂：`can1`
-- Bitrate：`1000000`
+- Left Nero arm: `can0`
+- Right Nero arm: `can1`
+- Bitrate: `1000000`
 
-激活 CAN：
+Bring up CAN:
 
 ```bash
 bash scripts/setup_can.sh can0 can1 1000000
 ```
 
-检查 CAN 网卡：
+Verify the CAN interfaces:
 
 ```bash
 bash scripts/check_can_ready.sh can0 can1
 ```
 
-检查 USB-CAN 物理端口映射：
+Check USB-CAN physical port mapping:
 
 ```bash
 for iface in can0 can1; do
@@ -542,279 +573,278 @@ for iface in can0 can1; do
 done
 ```
 
-如果重启或重插 USB hub 后接口名变化，需要重新检查当前映射，并按需要修改
-`configs/nero_dual_agx.yml`。
+If interface names change after reboot or after replugging the USB hub, inspect
+the current mapping and adjust `configs/nero_dual_agx.yml` if needed.
 
 ## Nero Web UI CAN Push
 
-Nero Web UI 通过网线控制机械臂，`pyAgxArm` 通过 Linux `socketcan`
-控制机械臂。这两条链路不是同一条链路。使用 USB-CAN 控制前，必须在
-Nero Web UI 中开启 CAN push。
+Nero Web UI control over Ethernet is not the same as PC control over USB-CAN.
+For `pyAgxArm` with Linux `socketcan`, the Nero Web UI must enable CAN push.
 
-开启 CAN push 后，`candump` 应能看到持续 CAN 帧：
+After enabling CAN push in the Web UI, `candump` should show continuous frames:
 
 ```bash
 timeout 10s candump can0 can1
 ```
 
-如果 `candump` 没有输出：
+If `candump` is empty:
 
-- 确认 Nero Web UI 中已开启 CAN push。
-- 确认 CAN-H/CAN-L/GND 接线正确。
-- 确认两个 USB-CAN 适配器都有供电。
-- 如果适配器接在 hub 上，使用带外部供电的 hub。
-- 确认适配器连接到了 Nero 的 CAN 口，而不只是接到了电脑 USB。
+- Confirm CAN push is enabled in the Nero Web UI.
+- Confirm CAN-H/CAN-L/GND wiring.
+- Confirm both USB-CAN adapters are powered.
+- Use a powered USB hub if the adapters are on a hub.
+- Confirm the adapters are connected to the Nero CAN ports, not only to USB.
 
-## 硬件检查
+## Hardware Check
 
-真机遥操作前，必须先验证机器人侧通信：
+Before real teleoperation, always verify robot-side communication:
 
 ```bash
 bash scripts/hardware_check.sh --timeout-s 5
 ```
 
-期望输出：
+Expected result:
 
 ```text
 left_arm: read 7 joints [...]
 right_arm: read 7 joints [...]
 ```
 
-`hardware_check` 只读取关节数据，不会主动移动机械臂。如果检查失败，不要启动
-真机遥操作，先修复 CAN push、接线、供电或 CAN 映射。
+If this fails, do not start teleoperation. Fix CAN push, wiring, power, or CAN
+mapping first.
 
-## 运行遥操作
+## Running Teleoperation
 
-查看项目状态：
+Check project status:
 
 ```bash
 bash scripts/status.sh
 ```
 
-检查 Quest profile：
+Check Quest profile:
 
 ```bash
 bash scripts/run_teleop_quest.sh check
 ```
 
-检查 Pico profile：
+Check Pico profile:
 
 ```bash
 bash scripts/run_teleop_pico.sh check
 ```
 
-干跑并显示 Placo 可视化：
+Dry-run with Placo visualization:
 
 ```bash
 bash scripts/run_teleop_quest.sh dry-run
 bash scripts/run_teleop_pico.sh dry-run
 ```
 
-运行 Quest 真机遥操作：
+Run Quest real teleoperation:
 
 ```bash
 bash scripts/run_teleop_quest.sh real
 ```
 
-运行 Pico 真机遥操作：
+Run Pico real teleoperation:
 
 ```bash
 bash scripts/run_teleop_pico.sh real
 ```
 
-头显 App 中必须开启 Controller tracking 和 Send。
+The headset app must have Controller tracking and Send enabled.
 
-如果头显 App 要求填写 PC 地址，使用机器人控制电脑在同一局域网内的 IP：
+If the headset app asks for the PC address, use the IP address of the robot PC
+on the same LAN as the headset:
 
 ```bash
 hostname -I
 ```
 
-## 操作流程
+## Operator Workflow
 
-1. 给两台 Nero 机械臂上电。
-2. 打开 Nero Web UI，确认两台机械臂都能手动控制。
-3. 在 Nero Web UI 中开启 CAN push。
-4. 如果使用 USB-CAN hub，确认 hub 已外部供电。
-5. 激活 CAN：
+1. Power on both Nero arms.
+2. Open Nero Web UI and confirm both arms can be controlled manually.
+3. Enable CAN push in the Nero Web UI.
+4. Power the USB-CAN hub if using one.
+5. Bring up CAN:
 
    ```bash
    bash scripts/setup_can.sh can0 can1 1000000
    ```
 
-6. 验证 CAN 和关节读取：
+6. Verify CAN and joint reads:
 
    ```bash
    timeout 10s candump can0 can1
    bash scripts/hardware_check.sh --timeout-s 5
    ```
 
-7. 启动 XRoboToolkit PC Service：
+7. Start XRoboToolkit PC Service:
 
    ```bash
    bash scripts/run_pc_service.sh
    ```
 
-8. 打开头显 App。
-9. 开启 Controller tracking 和 Send。
-10. 启动对应遥操作脚本：
+8. Open the headset app.
+9. Enable Controller tracking and Send.
+10. Start the matching teleop script:
 
    ```bash
    bash scripts/run_teleop_quest.sh real
-   # 或
+   # or
    bash scripts/run_teleop_pico.sh real
    ```
 
-11. 等待双臂到达启动初始位。
-12. 按住 grip 后，对应机械臂开始跟随手柄。
-13. 使用 trigger 控制对应夹爪。
-14. 按一次 Ctrl-C，双臂回零后程序正常退出。
+11. Wait for both arms to reach the startup pose.
+12. Hold grip to start following with the corresponding arm.
+13. Use trigger to control the corresponding gripper.
+14. Press Ctrl-C once to return both arms to zero and exit normally.
 
-## 当前控制映射
+## Current Control Mapping
 
-当前映射是根据已验证的 Nero 真机安装和头显输入调试得到的：
+The current mapping reflects the tested physical setup:
 
-- `left_arm` 使用 `right_controller`、`right_grip`、`right_trigger`。
-- `right_arm` 使用 `left_controller`、`left_grip`、`left_trigger`。
-- 平移符号：`[-1, -1, 1]`。
-- 旋转符号：`[-1, -1, 1]`。
-- 控制模式：pose，即位置和腕部姿态都参与控制。
-- 腕部响应现场调优：`orientation_weight: 0.45`、`rotation_scale: 0.95`。
-- 关节姿态正则：`posture_regularization_weight: 0.001`，用于减少 7 自由度 IK
-  在肩肘等中间关节上的异常扭转，同时保持腕部跟随。
+- `left_arm` uses `right_controller`, `right_grip`, `right_trigger`.
+- `right_arm` uses `left_controller`, `left_grip`, `left_trigger`.
+- Translation sign: `[-1, -1, 1]`.
+- Rotation sign: `[-1, -1, 1]`.
+- Control mode: pose, meaning position and wrist orientation are both used.
+- Tuned wrist response: `orientation_weight: 0.45`, `rotation_scale: 0.95`.
+- Joint posture regularization: `posture_regularization_weight: 0.001`, used to
+  reduce odd shoulder/elbow twists in the 7-DoF IK solution while preserving
+  wrist following.
 
-这些设置由 Quest 和 Pico 共用。除非实测证明某个设备输入约定不同，否则不要按头显
-复制或分叉机器人调参。
+These settings are shared by Quest and Pico. Do not duplicate robot tuning per
+headset unless a device-specific input convention is proven different.
 
-## 启动、退出和保持使能
+## Startup, Shutdown, And Hold Behavior
 
-启动：
+Startup:
 
-- 双臂移动到 `[0, 45, 0, 45, 0, 0, 0]` 度。
-- 启动阶段使用 `move_j`，当前调优为 `speed_percent: 40`、
-  `max_delta_rad_per_cycle: 0.022`；A 键回初始位置复用同一组 `startup` 速度参数。
-- 启动完成前不要使用 grip 输入。
+- Both arms move to `[0, 45, 0, 45, 0, 0, 0]` degrees.
+- Startup uses `move_j`, currently tuned to `speed_percent: 20` and
+  `max_delta_rad_per_cycle: 0.012`.
+- Grip input should not be used until startup completes.
 
-正常遥操作：
+Normal teleoperation:
 
-- 主动遥操作阶段使用 `move_js`。
-- 命令发送前仍会执行关节增量限幅。
-- 真机模式默认关闭日志，以降低 CAN/SDK 负载。
+- Active teleop uses `move_js`.
+- Joint delta limiting remains active before commands are sent.
+- Logs are disabled by default in real mode to reduce CAN/SDK load.
 
-Ctrl-C：
+Ctrl-C:
 
-- 按一次 Ctrl-C。
-- 遥操作输入停止。
-- 双臂回到零位 `[0, 0, 0, 0, 0, 0, 0]`。
-- 回零当前调优为 `speed_percent: 40`、`max_delta_rad_per_cycle: 0.022`。
-- 程序退出，但不会主动失能机械臂。
-- 正常退出后，`hold_enabled` 会启动，用于保持机械臂使能。
+- Press Ctrl-C once.
+- Teleop input stops.
+- Both arms return to zero `[0, 0, 0, 0, 0, 0, 0]`.
+- Return-to-zero is currently tuned to `speed_percent: 40` and
+  `max_delta_rad_per_cycle: 0.022`.
+- The program exits without intentionally disabling the arms.
+- After a normal exit, `hold_enabled` starts to keep the arms enabled.
 
-如果初始化失败：
+If initialization fails:
 
-- 不会自动启动 `hold_enabled`。
-- 必须先修复失败原因。
+- `hold_enabled` is not started automatically.
+- Fix the failed condition first.
 
-手动控制 hold：
+Manual hold controls:
 
 ```bash
 bash scripts/start_hold_enabled.sh
 bash scripts/stop_hold_enabled.sh
 ```
 
-仅在安全时手动失能：
+Manual disable, only when safe:
 
 ```bash
 bash scripts/disable_arms.sh
 ```
 
-## 重要配置
+## Important Configuration
 
-主配置文件：
+Main config file:
 
 ```text
 configs/nero_dual_agx.yml
 ```
 
-关键字段：
+Key fields:
 
-- `robot.control_rate_hz`：遥操作循环频率。
-- `robot.teleop_speed_percent`：遥操作时 Nero 速度百分比。
-- `robot.teleop_command_mode`：主动遥操作命令模式，当前为 `move_js`。
-- `robot.allow_move_js`：对使用 `move_js` 的显式风险确认。
-- `gripper.open_width_m`：夹爪完全打开目标，当前为 `0.10`。
-- `gripper.max_delta_m_per_cycle`：每个控制周期的夹爪速度限制。
-- `startup.*`：启动初始位和 A 键回初始位置速度，当前为 40% 且每周期最大 0.022 rad。
-- `shutdown.*`：Ctrl-C 后回零姿态和速度，当前为 40% 且每周期最大 0.022 rad。
-- `xr_mapping.*`：头显到机器人方向映射和 pose 权重。
-- `xr_mapping.orientation_weight` / `xr_mapping.rotation_scale`：腕部姿态跟随权重
-  和响应比例，当前现场调优为 0.45 / 0.95。
-- `xr_mapping.posture_regularization_weight`：低权重关节姿态正则，当前为 0.001，
-  用于抑制中间关节奇怪扭转。
-- `safety.max_joint_delta_rad_per_cycle`：主动遥操作每周期关节增量限幅，当前为
-  0.014。调腕部响应时不要优先放宽它。
-- `headsets.profiles.quest3`：Quest APK 元数据。
-- `headsets.profiles.pico4ultra`：Pico APK 元数据。
+- `robot.control_rate_hz`: teleop loop rate.
+- `robot.teleop_speed_percent`: Nero speed percent during teleop.
+- `robot.teleop_command_mode`: active command mode, currently `move_js`.
+- `robot.allow_move_js`: explicit risk acknowledgement for `move_js`.
+- `gripper.open_width_m`: fully open gripper target, currently `0.10`.
+- `gripper.max_delta_m_per_cycle`: gripper speed limit per control cycle.
+- `startup.*`: startup pose and speed, currently 20% with a 0.012 rad maximum
+  per cycle.
+- `shutdown.*`: Ctrl-C return-to-zero pose and speed, currently 40% with a
+  0.022 rad maximum per cycle.
+- `xr_mapping.*`: headset-to-robot direction and pose weighting.
+- `xr_mapping.orientation_weight` / `xr_mapping.rotation_scale`: wrist
+  orientation following weight and response scale, currently field-tuned to
+  0.45 / 0.95.
+- `xr_mapping.posture_regularization_weight`: low-weight joint posture
+  regularization, currently 0.001, used to suppress odd intermediate-joint
+  twisting.
+- `safety.max_joint_delta_rad_per_cycle`: active teleop joint delta limit per
+  cycle, currently 0.014. Do not start by loosening this when tuning wrist
+  response.
+- `headsets.profiles.quest3`: Quest APK metadata.
+- `headsets.profiles.pico4ultra`: Pico APK metadata.
 
-## 测试
+## Testing
 
-运行单元测试：
+Run unit tests:
 
 ```bash
 . .venv/bin/activate
 pytest -q tests
 ```
 
-运行 smoke test：
+Run smoke test:
 
 ```bash
 bash scripts/smoke_test.sh
 ```
 
-运行 profile 检查：
+Run profile checks:
 
 ```bash
 bash scripts/run_teleop_quest.sh check
 bash scripts/run_teleop_pico.sh check
 ```
 
-运行硬件检查：
+Run hardware check:
 
 ```bash
 bash scripts/hardware_check.sh --timeout-s 5
 ```
 
-修改代码、迁移电脑或调整配置后，建议至少运行单元测试、smoke test 和对应头显
-的 `check`。真机运行前必须再跑 `hardware_check`。
+## Troubleshooting
 
-## 故障排查
+### `hardware_check` says `SDK returned no data`
 
-故障排查按通信链路分层：先看 USB-CAN 和关节读取，再看 PC Service，最后看头显
-App、IP、ADB 和 APK。
+Most likely causes:
 
-### `hardware_check` 提示 `SDK returned no data`
+- CAN push is not enabled in Nero Web UI.
+- USB-CAN hub is not powered.
+- CAN-H/CAN-L/GND wiring is wrong or loose.
+- `can0/can1` mapping is wrong.
+- The USB-CAN adapters are connected to the PC but not to the Nero CAN ports.
 
-这个错误通常不是 Python 依赖问题，而是 PC 没有从 Nero 的 CAN 口收到反馈。
-
-常见原因：
-
-- Nero Web UI 中没有开启 CAN push。
-- USB-CAN hub 没有外部供电。
-- CAN-H/CAN-L/GND 接线错误或松动。
-- `can0/can1` 映射错误。
-- USB-CAN 适配器连接到了电脑，但没有接到 Nero CAN 口。
-
-检查：
+Check:
 
 ```bash
 timeout 10s candump can0 can1
 ```
 
-如果 `candump` 为空，先修复 CAN，再运行遥操作。
+If `candump` is empty, fix CAN before running teleop.
 
 ### `read: Network is down`
 
-CAN 网卡没有处于 up 状态。运行：
+The CAN interfaces are down. Run:
 
 ```bash
 bash scripts/setup_can.sh can0 can1 1000000
@@ -822,8 +852,9 @@ bash scripts/setup_can.sh can0 can1 1000000
 
 ### `left_arm/right_arm did not enable within 20.0s`
 
-当前封装会在使能时最多等待 20 秒，周期性设置 normal mode、批量使能，并对未使能
-关节逐个补发使能。如果仍失败，先运行：
+The wrapper now waits up to 20 seconds while periodically setting normal mode,
+bulk-enabling the arm, and sending per-joint enable commands for joints that are
+still disabled. If it still fails, run:
 
 ```bash
 bash scripts/check_can_ready.sh can0 can1
@@ -831,70 +862,72 @@ bash scripts/hardware_check.sh --timeout-s 5
 bash scripts/enable_can_push_check.sh --timeout-s 15
 ```
 
-确认 Web UI 中已开启 CAN push、USB-CAN hub 有外部供电、没有急停或错误状态。
-必要时先在 Web UI 手动恢复后再试。关节数据读通前，不要反复启动真机遥操作。
+Confirm CAN push is enabled in the Web UI, the USB-CAN hub has external power,
+and there is no emergency-stop or error state. If needed, recover manually in
+the Web UI before trying again. Do not retry real teleop until joint reads work.
 
-### 头显 App 无法连接 PC Service
+### Headset app cannot connect to PC Service
 
-检查：
+Check:
 
-- PC Service 是否运行：
+- PC Service is running:
 
   ```bash
   pgrep -a RoboticsService || bash scripts/run_pc_service.sh
   ```
 
-- 头显和 PC 是否在同一局域网。
-- 头显 App 中填写的 PC IP 是否正确：
+- Headset and PC are on the same LAN.
+- The headset app uses the correct PC IP:
 
   ```bash
   hostname -I
   ```
 
-- App 中是否开启 Controller tracking 和 Send。
+- Controller tracking and Send are enabled inside the app.
 
-### APK 安装失败
+### APK install fails
 
-检查 ADB：
+Check ADB:
 
 ```bash
 adb devices -l
 ```
 
-如果显示 unauthorized，戴上头显确认 USB 调试授权。
+If unauthorized, put on the headset and confirm USB debugging.
 
-如果同时连接多个设备：
+If multiple devices are connected:
 
 ```bash
 ADB_SERIAL=<serial> bash scripts/install_headset_apk.sh quest3
 ADB_SERIAL=<serial> bash scripts/install_headset_apk.sh pico4ultra
 ```
 
-### 夹爪打开不够大
+### Gripper does not open enough
 
-软件侧当前目标开度为 `0.10m`。如果物理夹爪仍只能开到约 `0.07m`，可能需要在
-夹爪本体参数或标定中配置更大行程，不一定是遥操作程序问题。AgileX 示例中出现过
-`0.07m` 和 `0.10m` 两种最大行程配置。
+The teleop target is currently `0.10m`. If the physical gripper still opens only
+about `0.07m`, the gripper may need teaching pendant parameter configuration or
+calibration for the larger stroke. AgileX examples mention both `0.07m` and
+`0.10m` maximum stroke configurations.
 
-## 迁移到另一台电脑
+## Migrating To Another PC
 
-支持两种迁移方式。
+There are two supported migration styles.
 
-### 方式 A：复制整个项目文件夹
+### Option A: Copy The Whole Project Folder
 
-推荐方式。复制 `/home/zxd/xrobot` 到新电脑，例如：
+Copy `/home/zxd/xrobot` to the new PC, for example:
 
 ```bash
 rsync -a /home/zxd/xrobot/ user@new-pc:/home/zxd/xrobot/
 ```
 
-在新电脑上：
+On the new PC:
 
 ```bash
 cd /home/zxd/xrobot
 ```
 
-重建 Python 环境。不要依赖复制过来的 `.venv`：
+Recreate the Python environment. Do not rely on the copied `.venv`:
 
 ```bash
 rm -rf .venv
@@ -905,40 +938,40 @@ bash scripts/install_runtime_minimal.sh
 pip install -e .
 ```
 
-安装 PC Service：
+Install PC Service:
 
 ```bash
 bash scripts/download_pc_service_deb.sh
 bash scripts/install_pc_service_deb.sh
 ```
 
-如果 APK 文件已随项目复制，会直接复用；否则重新下载：
+If APK files were copied, they will be reused. Otherwise download them:
 
 ```bash
 bash scripts/download_headset_apk.sh quest3
 bash scripts/download_headset_apk.sh pico4ultra
 ```
 
-如果新电脑或头显环境需要重新安装 APK：
+Install headset APKs if the new PC/headset setup needs it:
 
 ```bash
 bash scripts/install_headset_apk.sh quest3
 bash scripts/install_headset_apk.sh pico4ultra
 ```
 
-启动 PC Service：
+Start PC Service:
 
 ```bash
 bash scripts/run_pc_service.sh
 ```
 
-配置 CAN：
+Configure CAN:
 
 ```bash
 bash scripts/setup_can.sh can0 can1 1000000
 ```
 
-如果新电脑上 USB-CAN 映射不同，检查：
+If the new PC maps USB-CAN adapters differently, inspect:
 
 ```bash
 for iface in can0 can1; do
@@ -947,25 +980,26 @@ for iface in can0 can1; do
 done
 ```
 
-如果左右臂通道变化，修改 `configs/nero_dual_agx.yml`。
+Then update `configs/nero_dual_agx.yml` if left/right channels changed.
 
-在 Nero Web UI 中开启 CAN push，并验证：
+Enable CAN push from Nero Web UI and verify:
 
 ```bash
 timeout 10s candump can0 can1
 bash scripts/hardware_check.sh --timeout-s 5
 ```
 
-运行需要的头显链路：
+Run the desired headset:
 
 ```bash
 bash scripts/run_teleop_quest.sh real
 bash scripts/run_teleop_pico.sh real
 ```
 
-### 方式 B：全新文件夹或重新克隆
+### Option B: Fresh Clone Or Fresh Folder
 
-在新电脑上创建 `/home/zxd/xrobot` 并放入项目文件，然后运行：
+Create `/home/zxd/xrobot` on the new PC and place the project files there.
+Then run:
 
 ```bash
 cd /home/zxd/xrobot
@@ -977,7 +1011,7 @@ bash scripts/install_runtime_minimal.sh
 pip install -e .
 ```
 
-安装 PC Service 和 APK：
+Install PC Service and APKs:
 
 ```bash
 bash scripts/download_pc_service_deb.sh
@@ -986,20 +1020,20 @@ bash scripts/download_headset_apk.sh quest3
 bash scripts/download_headset_apk.sh pico4ultra
 ```
 
-通过 ADB 安装 APK：
+Install APKs through ADB:
 
 ```bash
 bash scripts/install_headset_apk.sh quest3
 bash scripts/install_headset_apk.sh pico4ultra
 ```
 
-启动 PC Service：
+Start PC Service:
 
 ```bash
 bash scripts/run_pc_service.sh
 ```
 
-激活 CAN 并验证：
+Bring up CAN and verify:
 
 ```bash
 bash scripts/setup_can.sh can0 can1 1000000
@@ -1007,26 +1041,30 @@ timeout 10s candump can0 can1
 bash scripts/hardware_check.sh --timeout-s 5
 ```
 
-运行：
+Run:
 
 ```bash
 bash scripts/run_teleop_quest.sh real
-# 或
+# or
 bash scripts/run_teleop_pico.sh real
 ```
 
-## 迁移注意事项
+## Migration Notes
 
-- 生成的 URDF 使用 `package://agx_arm_description/...` mesh 路径，运行脚本会自动设置
-  `ROS_PACKAGE_PATH`。移动项目文件夹后不需要手动修改 mesh 路径。
-- 复制过来的 `.venv` 不视为可移植环境，需要在新电脑重建。
-- 新电脑上的 USB-CAN 接口名可能变化，遥操作前必须运行 `hardware_check`。
-- 迁移后，头显 App 中可能需要填写新电脑 IP。
-- PC Service 必须在新电脑上安装，仅复制仓库不够。
-- 如果新电脑访问 GitHub 或 PyPI 不稳定，可以从旧电脑复制 `third_party/`、
-  `assets/apk/` 和 `assets/deb/`，再使用本地安装脚本。
+- The generated URDF uses `package://agx_arm_description/...` mesh paths and
+  the runtime scripts set `ROS_PACKAGE_PATH` automatically. Moving the project
+  folder does not require editing mesh paths.
+- A copied `.venv` is not considered portable. Recreate it on the new PC.
+- USB-CAN interface names can change on a new PC. Always run `hardware_check`
+  before teleoperation.
+- The headset app may need the new PC IP after migration.
+- PC Service must be installed on the new PC; copying the repository alone is
+  not enough.
+- If the new PC cannot access GitHub or PyPI reliably, copy `third_party/`,
+  `assets/apk/`, and `assets/deb/` from the old PC and use the local install
+  scripts.
 
-## 参考资料
+## References
 
 - XR-Robotics: https://github.com/XR-Robotics
 - XRoboToolkit Quest client: https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest

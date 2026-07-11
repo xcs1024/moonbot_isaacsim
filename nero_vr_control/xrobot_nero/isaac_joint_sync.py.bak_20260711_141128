@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Iterable, Sequence
+
+
+DEFAULT_JOINT_NAMES = tuple(f"joint{i}" for i in range(1, 8))
+DEFAULT_TOPIC = "isaac_joint_commands"
+
+
+def _prepend_env_path(name: str, value: str) -> None:
+    current = os.environ.get(name, "")
+    parts = [part for part in current.split(":") if part]
+    if value not in parts:
+        os.environ[name] = ":".join([value, *parts])
+
+
+def _site_packages_root() -> Path:
+    prefix = Path(os.environ.get("CONDA_PREFIX", sys.prefix))
+    return prefix / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+
+
+def _find_isaac_ros2_root(ros_distro: str | None = None) -> tuple[str, Path]:
+    core_root = _site_packages_root() / "isaacsim" / "exts" / "isaacsim.ros2.core"
+    candidates: list[str] = []
+    for value in (ros_distro, os.environ.get("ROS_DISTRO"), "jazzy", "humble"):
+        if value and value not in candidates:
+            candidates.append(value)
+
+    for candidate in candidates:
+        root = core_root / candidate
+        if (root / "rclpy").is_dir() and (root / "lib").is_dir():
+            return candidate, root
+
+    raise RuntimeError(f"Isaac Sim ROS2 libraries were not found under {core_root}")
+
+
+def setup_isaac_ros2_python(ros_distro: str | None = None) -> tuple[str, Path]:
+    distro, root = _find_isaac_ros2_root(ros_distro)
+    rclpy_path = str(root / "rclpy")
+    lib_path = str(root / "lib")
+
+    os.environ["ROS_DISTRO"] = distro
+    os.environ.setdefault("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
+    _prepend_env_path("LD_LIBRARY_PATH", lib_path)
+    if rclpy_path not in sys.path:
+        sys.path.insert(0, rclpy_path)
+    return distro, root
+
+
+class IsaacJointStatePublisher:
+    def __init__(
+        self,
+        *,
+        joint_names: Sequence[str] = DEFAULT_JOINT_NAMES,
+        topic: str = DEFAULT_TOPIC,
+        rate_hz: float = 30.0,
+        ros_distro: str | None = None,
+        node_name: str = "nero_real_to_isaac_joint_sync",
+        frame_id: str = "",
+    ) -> None:
+        if not joint_names:
+            raise ValueError("joint_names must not be empty")
+        if rate_hz <= 0:
+            raise ValueError("rate_hz must be greater than 0")
+
+        self.joint_names = [str(name) for name in joint_names]
+        self.topic = topic
+        self.frame_id = frame_id
+        self.min_period_s = 1.0 / float(rate_hz)
+        self._last_publish_time = 0.0
+        self._closed = False
+        self.ros_distro, self.ros_root = setup_isaac_ros2_python(ros_distro)
+
+        import rclpy
+        from sensor_msgs.msg import JointState
+
+        self.rclpy = rclpy
+        self.JointState = JointState
+        self._owns_rclpy = False
+        if not self.rclpy.ok():
+            self.rclpy.init(args=None)
+            self._owns_rclpy = True
+        self.node = self.rclpy.create_node(node_name)
+        self.publisher = self.node.create_publisher(self.JointState, topic, 10)
+
+    def publish(self, positions: Iterable[float], *, force: bool = False) -> bool:
+        if self._closed:
+            return False
+
+        now = time.monotonic()
+        if not force and now - self._last_publish_time < self.min_period_s:
+            return False
+
+        values = [float(value) for value in positions]
+        if len(values) != len(self.joint_names):
+            raise ValueError(f"expected {len(self.joint_names)} joint positions, got {len(values)}")
+
+        msg = self.JointState()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.header.frame_id = self.frame_id
+        msg.name = list(self.joint_names)
+        msg.position = values
+        self.publisher.publish(msg)
+        self.rclpy.spin_once(self.node, timeout_sec=0.0)
+        self._last_publish_time = now
+        return True
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.node.destroy_node()
+        finally:
+            if self._owns_rclpy and self.rclpy.ok():
+                self.rclpy.shutdown()

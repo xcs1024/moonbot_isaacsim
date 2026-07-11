@@ -11,30 +11,27 @@ robot:
   command_mode: move_j
   teleop_command_mode: move_js
   allow_move_js: true
-
 arms:
-  left_arm:
+  right_arm:
     channel: can0
-    link_name: left_link7
+    link_name: right_link7
     joint_names:
-      - left_joint1
-      - left_joint2
-      - left_joint3
-      - left_joint4
-      - left_joint5
-      - left_joint6
-      - left_joint7
+    - right_joint1
+    - right_joint2
+    - right_joint3
+    - right_joint4
+    - right_joint5
+    - right_joint6
+    - right_joint7
     pose_source: right_controller
     control_trigger: right_grip
     gripper_trigger: right_trigger
-
 gripper:
   enabled: true
-  open_width_m: 0.10
+  open_width_m: 0.1
   close_width_m: 0.0
   max_delta_m_per_cycle: 0.003
   command_deadband_m: 0.0003
-
 camera:
   enabled: false
   width: 640
@@ -44,27 +41,24 @@ camera:
   enable_compression: true
   jpg_quality: 85
   serials: {}
-
 dataset_capture:
   enabled: false
   format: lerobot_v3
   root_dir: datasets/lerobot
   repo_id: local/nero_single_right
   fps: 10
-  robot_type: agilex_nero_single
-  task: "single Nero right-controller teleoperation"
+  robot_type: agilex_nero_single_right
+  task: single Nero right-arm right-controller teleoperation
   start_button: X
   discard_button: Y
   min_episode_frames: 5
   image_writer_threads: 10
   image_writer_processes: 2
   image_streams: []
-
 return_to_start:
   enabled: true
   button: A
   hold_s: 1.0
-
 safety:
   deadman_threshold: 0.5
   xr_timeout_s: 0.25
@@ -72,7 +66,6 @@ safety:
   hold_on_inactive: true
   go_home_on_shutdown: false
   disable_on_shutdown: false
-
 startup:
   enabled: false
   speed_percent: 40
@@ -82,15 +75,14 @@ startup:
   timeout_s: 60.0
   settle_s: 1.0
   joint_positions_deg:
-    left_arm:
-      - 0.0
-      - 45.0
-      - 0.0
-      - 45.0
-      - 0.0
-      - 0.0
-      - 0.0
-
+    right_arm:
+    - 0.0
+    - 45.0
+    - 0.0
+    - 45.0
+    - 0.0
+    - 0.0
+    - 0.0
 shutdown:
   enabled: false
   speed_percent: 40
@@ -100,15 +92,14 @@ shutdown:
   timeout_s: 60.0
   settle_s: 1.0
   joint_positions_deg:
-    left_arm:
-      - 0.0
-      - 45.0
-      - 0.0
-      - 45.0
-      - 0.0
-      - 0.0
-      - 0.0
-
+    right_arm:
+    - 0.0
+    - 45.0
+    - 0.0
+    - 45.0
+    - 0.0
+    - 0.0
+    - 0.0
 xr_mapping:
   control_mode: pose
   position_deadband_m: 0.004
@@ -118,14 +109,13 @@ xr_mapping:
   orientation_weight: 0.45
   posture_regularization_weight: 0.001
   translation_sign:
-    - -1.0
-    - -1.0
-    - 1.0
+  - -1.0
+  - -1.0
+  - 1.0
   rotation_sign:
-    - -1.0
-    - -1.0
-    - 1.0
-
+  - -1.0
+  - -1.0
+  - 1.0
 headsets:
   default: pico4ultra
   profiles:
@@ -137,7 +127,6 @@ headsets:
       apk_sha256: 6b2bb282405673d24abcb1980e3478b8f1052e90f7207b1f24cc56a59f8d8261
       apk_path: assets/apk/pico4ultra/XRoboToolkit-PICO-1.1.1.apk
       install_args:
-        - -g
-
+      - -g
 pc_service:
   linux_run_script: /opt/apps/roboticsservice/runService.sh

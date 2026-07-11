@@ -50,6 +50,11 @@ if [ -f "$PID_FILE" ]; then
     echo "Stopping previous teleop pid $old_pid..."
     kill "$old_pid" 2>/dev/null || true
     sleep 2
+    if kill -0 "$old_pid" 2>/dev/null; then
+      echo "Previous teleop pid $old_pid did not exit; forcing stop..."
+      kill -9 "$old_pid" 2>/dev/null || true
+      sleep 1
+    fi
   fi
 fi
 
@@ -68,25 +73,30 @@ fi
 export LD_LIBRARY_PATH="$XRSDK_LIB_DIR:${LD_LIBRARY_PATH:-}"
 
 : > "$LOG_FILE"
-echo "Starting single-arm right-controller teleop..."
-nohup setsid "$PYTHON" -u -m xrobot_nero.teleop \
+echo "Starting single-arm right-controller teleop in foreground..."
+echo "Log: $LOG_FILE"
+echo "Exit: hold B on controller for 0.5s, or press Ctrl+C here. Arms stay enabled."
+
+"$PYTHON" -u -m xrobot_nero.teleop \
   --config "$CONFIG" \
   --headset "$HEADSET" \
   --real \
   --disable-log \
-  > "$LOG_FILE" 2>&1 < /dev/null &
+  > >(tee -a "$LOG_FILE") 2>&1 &
 
 teleop_pid=$!
 echo "$teleop_pid" > "$PID_FILE"
-sleep 5
 
-if ! kill -0 "$teleop_pid" 2>/dev/null; then
-  echo "Teleop failed to start. Log:" >&2
-  tail -160 "$LOG_FILE" >&2 || true
-  exit 1
-fi
+cleanup() {
+  if kill -0 "$teleop_pid" 2>/dev/null; then
+    echo "Stopping teleop pid $teleop_pid..."
+    kill "$teleop_pid" 2>/dev/null || true
+    wait "$teleop_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup INT TERM
 
-echo "Teleop running: pid $teleop_pid"
-echo "Log: $LOG_FILE"
-echo "Stop: kill \$(cat $PID_FILE)"
-tail -80 "$LOG_FILE" || true
+wait "$teleop_pid"
+status=$?
+rm -f "$PID_FILE"
+exit "$status"

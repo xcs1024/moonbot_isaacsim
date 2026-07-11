@@ -1,0 +1,586 @@
+#!/usr/bin/env python3
+"""
+Standalone Isaac Sim 6.0.1 script that displays RealSense D435 background as a
+dense RGB texture, using depth only as a foreground/background mask.
+
+This is intended for a visually strong "real background" effect:
+  - pixels closer than --min-distance are removed/dimmed
+  - pixels farther than --min-distance remain as a live RGB texture
+  - depth accuracy is not used for exact geometry
+
+Run:
+  conda activate env_isaacsim
+  python /home/nvidia/isaacsim_realworld/scripts/realsense_depth_masked_texture_isaacsim.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Tuple
+
+import cv2
+import numpy as np
+
+
+DEFAULT_WORLD = "/home/nvidia/isaacsim_realworld/assets/sim_world.usd"
+DEFAULT_TEXTURE_DIR = "/tmp/isaacsim_realsense_depth_masked_texture"
+DEFAULT_PLANE_PATH = "/World/RealSenseDepthMaskedBackground"
+DEFAULT_MATERIAL_PATH = "/World/RealSenseDepthMaskedBackground_Material"
+DEFAULT_ARTICULATION_CONTROLLER_PATH = "/World/nero_gripper_d435/moveit_arm_control/articulation_controller"
+DEFAULT_ROBOT_PATH = "/World/nero_gripper_d435/root_joint"
+DEFAULT_INSTA360_PANORAMA_SCRIPT = "/home/nvidia/insta360_live_panorama/isaacsim_live_panorama.py"
+JETSON_LIBGOMP = "/lib/aarch64-linux-gnu/libgomp.so.1"
+
+
+def log(message: str) -> None:
+    print(f"[RealSense TextureBG {time.strftime('%Y-%m-%d %H:%M:%S')}] {message}", flush=True)
+
+
+def reexec_with_jetson_libgomp_if_needed() -> None:
+    if not os.path.exists(JETSON_LIBGOMP):
+        return
+
+    ld_preload = os.environ.get("LD_PRELOAD", "")
+    entries = [entry for entry in ld_preload.split(":") if entry]
+    if JETSON_LIBGOMP in entries:
+        return
+
+    entries.append(JETSON_LIBGOMP)
+    os.environ["LD_PRELOAD"] = ":".join(entries)
+    log(f"Restarting with LD_PRELOAD={os.environ['LD_PRELOAD']}")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Show a depth-masked RealSense RGB background in Isaac Sim.")
+    parser.add_argument("--world", default=DEFAULT_WORLD, help="USD world to open.")
+    parser.add_argument("--width", type=int, default=640, help="Depth/color stream width.")
+    parser.add_argument("--height", type=int, default=480, help="Depth/color stream height.")
+    parser.add_argument("--fps", type=int, default=30, help="Depth/color stream FPS.")
+    parser.add_argument("--min-distance", type=float, default=3.0, help="Keep pixels at or beyond this depth in meters.")
+    parser.add_argument(
+        "--max-distance",
+        type=float,
+        default=0.0,
+        help="Optional far cutoff in meters. 0 keeps invalid/very far pixels as background.",
+    )
+    parser.add_argument(
+        "--near-mode",
+        choices=("transparent", "dim", "black", "keep"),
+        default="dim",
+        help="How to handle pixels closer than --min-distance.",
+    )
+    parser.add_argument("--near-dim", type=float, default=0.18, help="Brightness factor for --near-mode dim.")
+    parser.add_argument("--mask-softness", type=int, default=5, help="Odd blur kernel for soft depth-mask edges. 0 disables.")
+    parser.add_argument("--update-interval", type=float, default=0.10, help="Texture update interval in seconds.")
+    parser.add_argument("--jpeg-quality", type=int, default=88, help="JPEG quality for non-transparent modes.")
+    parser.add_argument("--texture-dir", default=DEFAULT_TEXTURE_DIR, help="Directory for generated live textures.")
+    parser.add_argument("--keep-frame-files", type=int, default=40, help="How many previous texture files to keep.")
+    parser.add_argument("--plane-path", default=DEFAULT_PLANE_PATH, help="USD mesh prim path for background plane.")
+    parser.add_argument("--material-path", default=DEFAULT_MATERIAL_PATH, help="USD material prim path.")
+    parser.add_argument(
+        "--articulation-controller-path",
+        default=DEFAULT_ARTICULATION_CONTROLLER_PATH,
+        help="OmniGraph articulation controller node to repair for Isaac Sim 6.0.1.",
+    )
+    parser.add_argument(
+        "--robot-path",
+        default=DEFAULT_ROBOT_PATH,
+        help="Articulation prim path used by the Isaac articulation controller.",
+    )
+    parser.add_argument(
+        "--plane-center",
+        type=float,
+        nargs=3,
+        default=(5.0, 0.0, 1.4),
+        metavar=("X", "Y", "Z"),
+        help="Center of the vertical billboard plane in Isaac world coordinates.",
+    )
+    parser.add_argument("--plane-width", type=float, default=6.8, help="Width of the background plane in stage units.")
+    parser.add_argument(
+        "--rotate",
+        choices=("none", "cw", "ccw", "180"),
+        default="none",
+        help="Rotate the live RGB texture.",
+    )
+    parser.add_argument(
+        "--flip",
+        choices=("none", "h", "v", "both"),
+        default="none",
+        help="Flip the live RGB texture.",
+    )
+    parser.add_argument("--auto-contrast", action="store_true", help="Apply a mild contrast/brightness boost.")
+    parser.add_argument("--headless", action="store_true", help="Run Isaac Sim without UI.")
+    parser.add_argument(
+        "--enable-ros2-bridge",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable Isaac Sim ROS2 bridge extensions so the USD joint-control graph can subscribe.",
+    )
+    parser.add_argument(
+        "--play-timeline",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Start the Isaac timeline so playback-tick OmniGraphs and articulation updates run.",
+    )
+    parser.add_argument(
+        "--ros-distro",
+        choices=("humble", "jazzy"),
+        default=os.environ.get("ROS_DISTRO", "jazzy"),
+        help="Isaac Sim bundled ROS2 distro to use when enabling the bridge.",
+    )
+    parser.add_argument(
+        "--enable-insta360-panorama",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run the Insta360 live panorama script automatically after opening the stage.",
+    )
+    parser.add_argument(
+        "--insta360-panorama-script",
+        default=DEFAULT_INSTA360_PANORAMA_SCRIPT,
+        help="Path to the Insta360 live panorama Script Editor script.",
+    )
+    parser.add_argument(
+        "--exit-after-frames",
+        type=int,
+        default=0,
+        help="If > 0, exit after writing this many texture frames. Useful for testing.",
+    )
+    return parser.parse_args()
+
+
+def setup_isaac_ros2_environment(args: argparse.Namespace) -> str:
+    conda_prefix = Path(os.environ.get("CONDA_PREFIX", sys.prefix))
+    python_mm = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    ros2_base = conda_prefix / "lib" / python_mm / "site-packages" / "isaacsim" / "exts" / "isaacsim.ros2.core"
+    distro = args.ros_distro
+    ros2_dir = ros2_base / distro
+    if not (ros2_dir / "rclpy").is_dir():
+        for candidate in ("jazzy", "humble"):
+            candidate_dir = ros2_base / candidate
+            if (candidate_dir / "rclpy").is_dir():
+                distro = candidate
+                ros2_dir = candidate_dir
+                break
+        else:
+            raise RuntimeError(f"Isaac Sim ROS2 libraries were not found under {ros2_base}")
+
+    def prepend_env_path(name: str, value: str) -> None:
+        current = os.environ.get(name, "")
+        parts = [part for part in current.split(":") if part]
+        if value not in parts:
+            os.environ[name] = ":".join([value, *parts])
+
+    os.environ["ROS_DISTRO"] = distro
+    os.environ.setdefault("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
+    prepend_env_path("PYTHONPATH", str(ros2_dir / "rclpy"))
+    prepend_env_path("LD_LIBRARY_PATH", str(ros2_dir / "lib"))
+    return distro
+
+
+def open_usd_stage(simulation_app, usd_path: str, timeout_s: float = 120.0):
+    import omni.usd
+
+    context = omni.usd.get_context()
+    if not context.open_stage(usd_path):
+        raise RuntimeError(f"Failed to request opening USD stage: {usd_path}")
+
+    start = time.monotonic()
+    while time.monotonic() - start < timeout_s:
+        simulation_app.update()
+        stage = context.get_stage()
+        try:
+            loading = bool(context.is_loading())
+        except Exception:
+            loading = False
+        if stage is not None and not loading:
+            return stage
+        time.sleep(0.03)
+
+    raise TimeoutError(f"Timed out opening USD stage after {timeout_s:.1f}s: {usd_path}")
+
+
+def start_realsense(args: argparse.Namespace):
+    import pyrealsense2 as rs
+
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, args.width, args.height, rs.format.z16, args.fps)
+    config.enable_stream(rs.stream.color, args.width, args.height, rs.format.rgb8, args.fps)
+    profile = pipeline.start(config)
+    align = rs.align(rs.stream.color)
+
+    device = profile.get_device()
+    depth_scale = float(device.first_depth_sensor().get_depth_scale())
+    log(f"RealSense started: device={device.get_info(rs.camera_info.name)}, depth_scale={depth_scale}")
+    return pipeline, align, depth_scale
+
+
+def get_aligned_frames(pipeline, align, timeout_ms: int = 5000) -> Tuple[np.ndarray, np.ndarray]:
+    frames = pipeline.wait_for_frames(timeout_ms)
+    aligned = align.process(frames)
+    depth_frame = aligned.get_depth_frame()
+    color_frame = aligned.get_color_frame()
+    if not depth_frame or not color_frame:
+        raise RuntimeError("Missing aligned depth or color frame.")
+
+    depth = np.asanyarray(depth_frame.get_data()).astype(np.float32)
+    color_rgb = np.asanyarray(color_frame.get_data())
+    return depth, color_rgb
+
+
+def postprocess_color(color_rgb: np.ndarray, args: argparse.Namespace) -> np.ndarray:
+    image = color_rgb
+    if args.rotate == "cw":
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    elif args.rotate == "ccw":
+        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    elif args.rotate == "180":
+        image = cv2.rotate(image, cv2.ROTATE_180)
+
+    if args.flip == "h":
+        image = cv2.flip(image, 1)
+    elif args.flip == "v":
+        image = cv2.flip(image, 0)
+    elif args.flip == "both":
+        image = cv2.flip(image, -1)
+
+    if args.auto_contrast:
+        image = cv2.convertScaleAbs(image, alpha=1.12, beta=4)
+    return image
+
+
+def postprocess_mask(mask: np.ndarray, args: argparse.Namespace) -> np.ndarray:
+    if args.rotate == "cw":
+        mask = cv2.rotate(mask, cv2.ROTATE_90_CLOCKWISE)
+    elif args.rotate == "ccw":
+        mask = cv2.rotate(mask, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    elif args.rotate == "180":
+        mask = cv2.rotate(mask, cv2.ROTATE_180)
+
+    if args.flip == "h":
+        mask = cv2.flip(mask, 1)
+    elif args.flip == "v":
+        mask = cv2.flip(mask, 0)
+    elif args.flip == "both":
+        mask = cv2.flip(mask, -1)
+    return mask
+
+
+def build_background_image(depth_raw: np.ndarray, color_rgb: np.ndarray, depth_scale: float, args: argparse.Namespace):
+    depth_m = depth_raw * np.float32(depth_scale)
+
+    # Treat missing depth as background so the visual stays dense instead of full of holes.
+    background = (depth_raw <= 0) | (depth_m >= args.min_distance)
+    if args.max_distance > 0.0:
+        background &= (depth_raw <= 0) | (depth_m <= args.max_distance)
+
+    alpha = background.astype(np.uint8) * 255
+    if args.mask_softness > 0:
+        kernel = int(args.mask_softness)
+        if kernel % 2 == 0:
+            kernel += 1
+        alpha = cv2.GaussianBlur(alpha, (kernel, kernel), 0)
+
+    alpha = postprocess_mask(alpha, args)
+    color = postprocess_color(color_rgb, args)
+
+    if args.near_mode == "transparent":
+        rgba = np.dstack((color, alpha)).astype(np.uint8)
+        return rgba, int(background.sum()), "png"
+
+    if args.near_mode == "dim":
+        factor = np.clip(alpha.astype(np.float32) / 255.0, 0.0, 1.0)
+        min_factor = float(np.clip(args.near_dim, 0.0, 1.0))
+        factor = min_factor + (1.0 - min_factor) * factor
+        color = np.clip(color.astype(np.float32) * factor[:, :, None], 0, 255).astype(np.uint8)
+    elif args.near_mode == "black":
+        color = color.copy()
+        color[alpha < 128] = 0
+    elif args.near_mode == "keep":
+        pass
+
+    return color.astype(np.uint8), int(background.sum()), "jpg"
+
+
+def write_texture(image: np.ndarray, sequence: int, args: argparse.Namespace, extension: str) -> str:
+    texture_dir = Path(args.texture_dir)
+    texture_dir.mkdir(parents=True, exist_ok=True)
+    path = texture_dir / f"realsense_bg_{sequence:06d}.{extension}"
+
+    if extension == "png":
+        # OpenCV expects BGRA order for PNG.
+        image_to_write = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
+        ok = cv2.imwrite(str(path), image_to_write)
+    else:
+        image_to_write = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        ok = cv2.imwrite(str(path), image_to_write, [int(cv2.IMWRITE_JPEG_QUALITY), int(args.jpeg_quality)])
+    if not ok:
+        raise RuntimeError(f"Failed to write texture: {path}")
+
+    old_sequence = sequence - int(args.keep_frame_files)
+    if old_sequence >= 0:
+        for old_ext in ("png", "jpg"):
+            old_path = texture_dir / f"realsense_bg_{old_sequence:06d}.{old_ext}"
+            try:
+                old_path.unlink()
+            except FileNotFoundError:
+                pass
+    return str(path)
+
+
+def make_plane_points(args: argparse.Namespace, image_shape: Tuple[int, int, int]):
+    from pxr import Gf
+
+    height_px, width_px = image_shape[:2]
+    aspect = height_px / float(width_px)
+    width = float(args.plane_width)
+    height = width * aspect
+    cx, cy, cz = [float(value) for value in args.plane_center]
+    half_w = width * 0.5
+    half_h = height * 0.5
+
+    # Billboard plane perpendicular to Isaac +X, spanning world Y/Z.
+    return [
+        Gf.Vec3f(cx, cy + half_w, cz - half_h),
+        Gf.Vec3f(cx, cy - half_w, cz - half_h),
+        Gf.Vec3f(cx, cy - half_w, cz + half_h),
+        Gf.Vec3f(cx, cy + half_w, cz + half_h),
+    ]
+
+
+def create_or_update_plane(stage, args: argparse.Namespace, image_shape: Tuple[int, int, int]):
+    from pxr import Gf, Sdf, UsdGeom, Vt
+
+    points = make_plane_points(args, image_shape)
+    existing_prim = stage.GetPrimAtPath(args.plane_path)
+    if existing_prim.IsValid() and existing_prim.IsA(UsdGeom.Mesh):
+        mesh = UsdGeom.Mesh(existing_prim)
+    else:
+        if existing_prim.IsValid():
+            stage.RemovePrim(args.plane_path)
+        mesh = UsdGeom.Mesh.Define(stage, args.plane_path)
+
+    mesh.CreatePointsAttr().Set(points)
+    mesh.CreateFaceVertexCountsAttr().Set([4])
+    mesh.CreateFaceVertexIndicesAttr().Set([0, 1, 2, 3])
+    mesh.CreateDoubleSidedAttr().Set(True)
+    mesh.CreateExtentAttr().Set(
+        [
+            Gf.Vec3f(min(point[0] for point in points), min(point[1] for point in points), min(point[2] for point in points)),
+            Gf.Vec3f(max(point[0] for point in points), max(point[1] for point in points), max(point[2] for point in points)),
+        ]
+    )
+
+    st = UsdGeom.PrimvarsAPI(mesh.GetPrim()).CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.varying
+    )
+    st.Set(Vt.Vec2fArray([Gf.Vec2f(0, 1), Gf.Vec2f(1, 1), Gf.Vec2f(1, 0), Gf.Vec2f(0, 0)]))
+    st.SetInterpolation(UsdGeom.Tokens.varying)
+    return mesh
+
+
+def create_texture_material(stage, args: argparse.Namespace, first_texture_path: str):
+    from pxr import Sdf, UsdShade
+
+    if stage.GetPrimAtPath(args.material_path).IsValid():
+        stage.RemovePrim(args.material_path)
+
+    material = UsdShade.Material.Define(stage, args.material_path)
+
+    st_reader = UsdShade.Shader.Define(stage, args.material_path + "/PrimvarReader_st")
+    st_reader.CreateIdAttr("UsdPrimvarReader_float2")
+    st_reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    st_reader.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    texture = UsdShade.Shader.Define(stage, args.material_path + "/Texture")
+    texture.CreateIdAttr("UsdUVTexture")
+    texture_file_input = texture.CreateInput("file", Sdf.ValueTypeNames.Asset)
+    texture_file_input.Set(Sdf.AssetPath(first_texture_path))
+    texture.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("sRGB")
+    texture.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(st_reader.ConnectableAPI(), "result")
+    texture.CreateOutput("rgb", Sdf.ValueTypeNames.Color3f)
+    texture.CreateOutput("a", Sdf.ValueTypeNames.Float)
+
+    shader = UsdShade.Shader.Define(stage, args.material_path + "/PreviewSurface")
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(texture.ConnectableAPI(), "rgb")
+    shader.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(texture.ConnectableAPI(), "rgb")
+    shader.CreateInput("opacity", Sdf.ValueTypeNames.Float).ConnectToSource(texture.ConnectableAPI(), "a")
+    shader.CreateInput("opacityThreshold", Sdf.ValueTypeNames.Float).Set(0.01)
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.75)
+    shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+    shader.CreateOutput("surface", Sdf.ValueTypeNames.Token)
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    return material, texture_file_input
+
+
+def bind_material(mesh, material) -> None:
+    from pxr import UsdShade
+
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material, UsdShade.Tokens.strongerThanDescendants)
+
+
+def select_prim(prim_path: str) -> None:
+    import omni.usd
+
+    omni.usd.get_context().get_selection().set_selected_prim_paths([prim_path], True)
+
+
+def repair_joint_control_graph(stage, args: argparse.Namespace) -> None:
+    from pxr import Sdf
+
+    controller = stage.GetPrimAtPath(args.articulation_controller_path)
+    if not controller:
+        log(f"Articulation controller node not found: {args.articulation_controller_path}")
+        return
+
+    robot_path = args.robot_path
+    if robot_path and not stage.GetPrimAtPath(robot_path):
+        log(f"Requested robot path not found, leaving graph unchanged: {robot_path}")
+        return
+
+    attr = controller.GetAttribute("inputs:robotPath")
+    if not attr:
+        attr = controller.CreateAttribute("inputs:robotPath", Sdf.ValueTypeNames.String)
+    attr.Set(robot_path)
+    log(f"Joint control graph repaired: inputs:robotPath={robot_path}")
+
+
+def enable_ros2_bridge_extensions(simulation_app) -> None:
+    import omni.kit.app
+
+    manager = omni.kit.app.get_app().get_extension_manager()
+    for extension_name in ("isaacsim.ros2.core", "isaacsim.ros2.bridge", "isaacsim.ros2.nodes"):
+        try:
+            if manager.get_enabled_extension_id(extension_name) is None:
+                manager.set_extension_enabled_immediate(extension_name, True)
+        except Exception as exc:
+            log(f"Could not enable extension {extension_name}: {exc}")
+    for _ in range(5):
+        simulation_app.update()
+
+
+def start_timeline(simulation_app) -> None:
+    import omni.timeline
+
+    timeline = omni.timeline.get_timeline_interface()
+    timeline.play()
+    for _ in range(5):
+        simulation_app.update()
+    log("Timeline playback started.")
+
+
+def start_insta360_live_panorama(simulation_app, args: argparse.Namespace) -> None:
+    script_path = Path(args.insta360_panorama_script).expanduser()
+    if not script_path.exists():
+        raise FileNotFoundError(f"Insta360 panorama script not found: {script_path}")
+
+    namespace = {
+        "__file__": str(script_path),
+        "__name__": "__insta360_live_panorama_autostart__",
+    }
+    code = compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec")
+    exec(code, namespace, namespace)
+    for _ in range(3):
+        simulation_app.update()
+    log(f"Insta360 live panorama script started: {script_path}")
+
+
+def main() -> int:
+    args = parse_args()
+    if args.min_distance <= 0:
+        raise ValueError("--min-distance must be greater than 0.")
+    if args.max_distance > 0 and args.max_distance <= args.min_distance:
+        raise ValueError("--max-distance must be 0 or greater than --min-distance.")
+    if args.update_interval <= 0:
+        raise ValueError("--update-interval must be greater than 0.")
+
+    if args.enable_ros2_bridge:
+        distro = setup_isaac_ros2_environment(args)
+        log(f"Configured Isaac Sim ROS2 bridge environment: ROS_DISTRO={distro}")
+
+    reexec_with_jetson_libgomp_if_needed()
+    sys.argv = [sys.argv[0]]
+
+    log("Importing Isaac Sim SimulationApp.")
+    from isaacsim import SimulationApp
+
+    log(f"Creating SimulationApp: headless={bool(args.headless)}")
+    simulation_app = SimulationApp({"headless": bool(args.headless)})
+    log("SimulationApp created.")
+    from pxr import Sdf
+    pipeline = None
+
+    try:
+        if args.enable_ros2_bridge:
+            enable_ros2_bridge_extensions(simulation_app)
+            log("ROS2 bridge extensions enabled.")
+
+        log(f"Opening world: {args.world}")
+        stage = open_usd_stage(simulation_app, args.world)
+        repair_joint_control_graph(stage, args)
+        if args.enable_insta360_panorama:
+            start_insta360_live_panorama(simulation_app, args)
+        if args.play_timeline:
+            start_timeline(simulation_app)
+
+        pipeline, align, depth_scale = start_realsense(args)
+        for _ in range(10):
+            pipeline.wait_for_frames(5000)
+
+        depth_raw, color_rgb = get_aligned_frames(pipeline, align)
+        image, background_pixels, extension = build_background_image(depth_raw, color_rgb, depth_scale, args)
+        first_texture = write_texture(image, 0, args, extension)
+
+        mesh = create_or_update_plane(stage, args, image.shape)
+        material, texture_file_input = create_texture_material(stage, args, first_texture)
+        bind_material(mesh, material)
+        select_prim(args.plane_path)
+        log(
+            f"Background plane created: {args.plane_path}, texture={first_texture}, "
+            f"background_pixels={background_pixels}"
+        )
+
+        frame_count = 1
+        next_update = 0.0
+        last_log = time.monotonic()
+        while simulation_app.is_running():
+            now = time.monotonic()
+            if now >= next_update:
+                depth_raw, color_rgb = get_aligned_frames(pipeline, align)
+                image, background_pixels, extension = build_background_image(depth_raw, color_rgb, depth_scale, args)
+                texture_path = write_texture(image, frame_count, args, extension)
+                texture_file_input.Set(Sdf.AssetPath(texture_path))
+                frame_count += 1
+                next_update = now + args.update_interval
+
+                if now - last_log >= 5.0 or args.exit_after_frames:
+                    log(
+                        f"Texture frame {frame_count - 1}: background_pixels={background_pixels}, "
+                        f"mode={args.near_mode}, min_distance={args.min_distance}m"
+                    )
+                    last_log = now
+
+                if args.exit_after_frames > 0 and frame_count >= args.exit_after_frames:
+                    log(f"Exiting after {frame_count} frame(s).")
+                    break
+
+            simulation_app.update()
+
+    except KeyboardInterrupt:
+        log("Interrupted by user.")
+    finally:
+        if pipeline is not None:
+            pipeline.stop()
+        simulation_app.close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

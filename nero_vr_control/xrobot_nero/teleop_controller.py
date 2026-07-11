@@ -26,6 +26,13 @@ class NeroDualTeleopController:
         dataset_fps: int | None = None,
         dataset_image_writer_threads: int | None = None,
         dataset_image_writer_processes: int | None = None,
+        isaac_sync: bool = False,
+        isaac_sync_topic: str = "isaac_joint_commands",
+        isaac_sync_joint_names: list[str] | None = None,
+        isaac_sync_rate: float = 30.0,
+        isaac_sync_gripper: bool = True,
+        isaac_sync_ros_distro: str | None = None,
+        isaac_sync_frame_id: str = "",
     ):
         from ._xr_hardware import XRNeroDualTeleopController
 
@@ -42,4 +49,11 @@ class NeroDualTeleopController:
             dataset_fps=dataset_fps,
             dataset_image_writer_threads=dataset_image_writer_threads,
             dataset_image_writer_processes=dataset_image_writer_processes,
+            isaac_sync=isaac_sync,
+            isaac_sync_topic=isaac_sync_topic,
+            isaac_sync_joint_names=isaac_sync_joint_names,
+            isaac_sync_rate=isaac_sync_rate,
+            isaac_sync_gripper=isaac_sync_gripper,
+            isaac_sync_ros_distro=isaac_sync_ros_distro,
+            isaac_sync_frame_id=isaac_sync_frame_id,
         )
